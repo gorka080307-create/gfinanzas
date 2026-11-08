@@ -3,36 +3,48 @@
   'use strict';
 
   const C = window.GCalc;
-  const STORE_KEY = 'gfinanzas.v1';
   const $ = (s, el = document) => el.querySelector(s);
   const $$ = (s, el = document) => Array.from(el.querySelectorAll(s));
 
   // ---------- Estado ----------
-  let state = load();
+  const V = window.GVault;
+  let state = emptyState();
+  let session = null; // clave de cifrado en memoria mientras está desbloqueada
   let charts = {};
   let editingId = null;
 
   function emptyState() {
-    return { version: 1, ops: [], prices: {}, settings: { currency: 'EUR', rates: {} }, seq: 0 };
+    return {
+      version: 1,
+      ops: [],
+      prices: {},
+      settings: { currency: 'EUR', rates: {}, tax: { mode: 'none', rate: 0 }, autoLock: 10 },
+      seq: 0,
+    };
   }
-  function load() {
-    try {
-      const raw = localStorage.getItem(STORE_KEY);
-      if (!raw) return emptyState();
-      const s = JSON.parse(raw);
-      return { ...emptyState(), ...s, settings: { ...emptyState().settings, ...(s.settings || {}) } };
-    } catch (e) {
-      console.warn('No se pudieron leer los datos guardados', e);
-      return emptyState();
-    }
+  function normalize(s) {
+    s = s || {};
+    const e = emptyState();
+    return { ...e, ...s, settings: { ...e.settings, ...(s.settings || {}) } };
   }
   function save() {
-    try {
-      localStorage.setItem(STORE_KEY, JSON.stringify(state));
-    } catch (e) {
+    if (!session) return;
+    V.save(session, state).catch((e) => {
+      console.error(e);
       toast('No se pudo guardar: el navegador no permite almacenamiento local.');
-    }
+    });
   }
+
+  // ---------- Impuestos (por defecto, 0 %) ----------
+  const taxMode = () => (state.settings.tax && state.settings.tax.mode) || 'none';
+  function taxFor(gain) {
+    if (!(gain > 0)) return 0;
+    const m = taxMode();
+    if (m === 'irpf') return C.estimateSavingsTax(gain);
+    if (m === 'custom') return (gain * C.num(state.settings.tax.rate)) / 100;
+    return 0;
+  }
+  const taxLabel = () => (taxMode() === 'custom' ? `Impuestos (${numFmt(C.num(state.settings.tax.rate), 2)} %)` : 'Impuestos (IRPF aprox.)');
 
   // ---------- Utilidades ----------
   const CURRENCIES = ['EUR', 'USD', 'GBP', 'CHF', 'CAD', 'JPY', 'SEK', 'DKK', 'NOK', 'HKD', 'AUD'];
@@ -113,6 +125,7 @@
     renderRates();
     renderTopTotal();
     renderQuoteSettings();
+    renderSecuritySettings();
   }
 
   function renderWarnings() {
@@ -387,7 +400,7 @@
     const r = sim.result;
     if (!r) return '';
     const over = (sim.requested ?? 0) > sim.available + 1e-9;
-    const tax = r.gainB > 0 ? C.estimateSavingsTax(r.gainB) : 0;
+    const tax = taxFor(r.gainB);
     const m = (v, o = {}) => money(v, { ...o, ccy: r.ccy });
     const inBase = r.ccy !== base() ? ` <span class="muted small">(${money(r.gainB, { sign: true })})</span>` : '';
     return `
@@ -398,7 +411,12 @@
         <div><span>Ingreso neto (tras comisión)</span><strong>${m(r.proceeds)}</strong></div>
         <div><span>Coste de compra (FIFO)</span><strong>${m(r.cost)}</strong></div>
         <div><span>Acciones disponibles</span><strong>${numFmt(sim.available)}</strong></div>
-        ${r.gainB > 0 ? `<div><span>IRPF aprox. (si fuera tu única ganancia)</span><strong>${money(tax)}</strong></div>` : ''}
+        ${
+          taxMode() !== 'none' && r.gainB > 0
+            ? `<div><span>${taxLabel()}</span><strong>${money(tax)}</strong></div>
+               <div><span>Te quedaría limpio</span><strong class="pos">${money(r.gainB - tax, { sign: true })}</strong></div>`
+            : ''
+        }
       </div>`;
   }
 
@@ -483,21 +501,42 @@
       gains: 0, losses: 0, net: 0, sales: 0, divGross: 0, divWithholding: 0, divNet: 0, proceeds: 0, cost: 0,
     };
 
-    // Base del ahorro con compensación del 25 % entre ganancias patrimoniales y dividendos
-    let savingsBase;
-    if (s.net >= 0) savingsBase = s.net + s.divGross;
-    else savingsBase = s.divGross - Math.min(-s.net, 0.25 * s.divGross);
-    const tax = C.estimateSavingsTax(savingsBase);
-    const toPay = tax - s.divWithholding;
+    // Límites orientativos de la obligación de declarar por inversiones
+    const savings = s.net + s.divGross;
+    let declare;
+    if (savings > 1000) declare = { v: 'Superas el límite', sub: 'Ganancias de más de 1.000 € en el año', c: 'neg' };
+    else if (s.net <= -500) declare = { v: 'Superas el límite', sub: 'Pérdidas de 500 € o más en el año', c: 'neg' };
+    else
+      declare = {
+        v: 'Dentro del límite',
+        sub: savings >= 0 ? `Te quedan ${money(1000 - savings)} hasta 1.000 € de ganancia` : `Pérdida a ${money(500 + s.net)} del límite de 500 €`,
+        c: 'pos',
+      };
 
-    $('#fiscalKpis').innerHTML = [
+    const cards = [
       kpi('Resultado neto de ventas', money(s.net, { sign: true }), `${s.sales} venta${s.sales === 1 ? '' : 's'} en ${y}`, '', cls(s.net)),
       kpi('Ganancias', money(s.gains), 'Ventas con beneficio', '', 'pos'),
       kpi('Pérdidas', money(s.losses), 'Ventas con pérdida', '', s.losses < 0 ? 'neg' : ''),
-      kpi('Dividendos brutos', money(s.divGross), `Retenido: ${money(s.divWithholding)}`),
-      kpi('Base del ahorro (aprox.)', money(Math.max(0, savingsBase)), 'Ventas + dividendos'),
-      kpi('IRPF estimado', money(tax), toPay >= 0 ? `≈ ${money(toPay)} a pagar tras retenciones` : `≈ ${money(-toPay)} a devolver`),
-    ].join('');
+      kpi('Total vendido', money(s.proceeds), 'Dinero recibido por las ventas'),
+      kpi('Dividendos netos', money(s.divNet), s.divWithholding ? `Retenido por el bróker: ${money(s.divWithholding)}` : 'Cobrados en el año'),
+      kpi('¿Obligado a declarar?', declare.v, declare.sub + ' (orientativo)', '', declare.c),
+    ];
+    if (taxMode() !== 'none') {
+      let savingsBase;
+      if (s.net >= 0) savingsBase = s.net + s.divGross;
+      else savingsBase = s.divGross - Math.min(-s.net, 0.25 * s.divGross);
+      const tax = taxFor(savingsBase);
+      cards.push(
+        kpi(taxLabel(), money(tax), `Sobre ${money(Math.max(0, savingsBase))} de base`),
+        kpi('Neto tras impuestos', money(s.net + s.divNet - Math.max(0, tax - s.divWithholding), { sign: true }), 'Ventas + dividendos', '', cls(s.net + s.divNet - tax))
+      );
+    }
+    $('#fiscalKpis').innerHTML = cards.join('');
+    $('#fiscalNote').innerHTML =
+      'Ganancias calculadas con el método <strong>FIFO</strong> (las primeras acciones compradas son las primeras vendidas). ' +
+      'Aunque no hagas la renta por tus ingresos, Hacienda obliga a declarar si en el año ganas más de 1.000 € o pierdes 500 € o más con tus inversiones. ' +
+      (taxMode() === 'none' ? 'Los impuestos están al 0 %; puedes activarlos en Datos → Ajustes. ' : '') +
+      'Las ventas marcadas con ⚠ pueden estar afectadas por la <strong>regla de los dos meses</strong>.';
 
     const sales = pf.realized.filter((r) => r.date.startsWith(y)).reverse();
     $('#salesTable').innerHTML = sales.length
@@ -1309,14 +1348,213 @@
     }
   });
 
-  // ---------- Inicio ----------
-  tickClock();
-  setInterval(tickClock, 1000);
-  render();
-  refreshFx();
-  refreshPrices();
-  setInterval(() => document.visibilityState === 'visible' && refreshPrices(), 5 * 60 * 1000);
-  setInterval(refreshFx, 60 * 60 * 1000);
-  const initial = location.hash.replace('#', '');
-  if (initial && $('#tab-' + initial)) showTab(initial);
+  // ---------- Ajustes: impuestos, seguridad ----------
+  function renderSecuritySettings() {
+    const mode = taxMode();
+    $$('input[name="taxMode"]').forEach((r) => (r.checked = r.value === mode));
+    $('#taxRate').value = state.settings.tax && state.settings.tax.rate ? state.settings.tax.rate : '';
+    $('#autoLockSel').value = String(state.settings.autoLock ?? 10);
+  }
+  $$('input[name="taxMode"]').forEach((r) =>
+    r.addEventListener('change', () => {
+      state.settings.tax = { ...(state.settings.tax || {}), mode: r.value };
+      if (r.value === 'custom' && !C.num(state.settings.tax.rate)) {
+        state.settings.tax.rate = 19;
+        $('#taxRate').value = 19;
+      }
+      save();
+      render();
+    })
+  );
+  $('#taxRate').addEventListener('change', (e) => {
+    state.settings.tax = { mode: 'custom', rate: Math.max(0, Math.min(100, C.num(e.target.value))) };
+    save();
+    render();
+  });
+  $('#autoLockSel').addEventListener('change', (e) => {
+    state.settings.autoLock = parseInt(e.target.value, 10);
+    save();
+    toast(state.settings.autoLock ? `Se bloqueará tras ${state.settings.autoLock} min sin usarla` : 'Bloqueo automático desactivado');
+  });
+  $('#pwForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const f = e.target;
+    const problem = passwordProblem(f.next.value, f.next2.value);
+    if (problem) return toast(problem);
+    const btn = f.querySelector('button');
+    btn.disabled = true;
+    btn.textContent = 'Cambiando…';
+    try {
+      await V._queue; // espera a que terminen los guardados pendientes
+      session = await V.changePassword(f.current.value, f.next.value, state);
+      f.reset();
+      toast('Contraseña cambiada');
+    } catch (err) {
+      toast(err.wrong ? 'La contraseña actual no es correcta' : 'No se pudo cambiar la contraseña');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Cambiar contraseña';
+    }
+  });
+
+  function passwordProblem(p, p2) {
+    if (p.length < 6) return 'La contraseña debe tener al menos 6 caracteres.';
+    if (p !== p2) return 'Las contraseñas no coinciden.';
+    return '';
+  }
+
+  // ---------- Bloqueo automático ----------
+  let lastActivity = Date.now();
+  ['pointerdown', 'keydown', 'wheel', 'touchstart', 'mousemove'].forEach((ev) =>
+    document.addEventListener(ev, () => (lastActivity = Date.now()), { passive: true })
+  );
+  function lockNow() {
+    session = null;
+    state = emptyState();
+    location.reload(); // borra todo de la memoria
+  }
+  function checkIdle() {
+    const mins = state.settings.autoLock ?? 10;
+    if (session && mins > 0 && Date.now() - lastActivity > mins * 60000) lockNow();
+  }
+  $('#lockBtnTop').addEventListener('click', lockNow);
+
+  // ---------- Arranque tras desbloquear ----------
+  let started = false;
+  function start() {
+    if (started) return;
+    started = true;
+    document.body.classList.remove('locked');
+    lastActivity = Date.now();
+    tickClock();
+    setInterval(tickClock, 1000);
+    render();
+    renderSecuritySettings();
+    const initial = location.hash.replace('#', '');
+    showTab(initial && $('#tab-' + initial) ? initial : 'resumen');
+    refreshFx();
+    refreshPrices();
+    setInterval(() => document.visibilityState === 'visible' && refreshPrices(), 5 * 60 * 1000);
+    setInterval(refreshFx, 60 * 60 * 1000);
+    setInterval(checkIdle, 15000);
+    document.addEventListener('visibilitychange', checkIdle);
+  }
+
+  // ---------- Pantalla de bloqueo ----------
+  const lockForm = $('#lockForm');
+  const lockPass = $('#lockPass');
+  const lockPass2 = $('#lockPass2');
+  const lockMsg = $('#lockMsg');
+  const lockBtn = $('#lockBtn');
+  let lockMode = 'unlock';
+
+  function lockClock() {
+    const now = new Date();
+    $('#lockTime').textContent = now.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+    $('#lockDate').textContent = now.toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+    if (lockMode === 'unlock') {
+      const g = V.guard();
+      const wait = Math.ceil((g.until - Date.now()) / 1000);
+      if (wait > 0) {
+        lockBtn.disabled = true;
+        lockMsg.className = 'lock-msg';
+        lockMsg.textContent = `Demasiados intentos. Espera ${wait >= 60 ? Math.ceil(wait / 60) + ' min' : wait + ' s'}.`;
+      } else if (lockBtn.disabled && lockBtn.dataset.busy !== '1') {
+        lockBtn.disabled = false;
+        lockMsg.textContent = '';
+      }
+    }
+  }
+
+  function setupLock() {
+    lockClock();
+    setInterval(lockClock, 1000);
+    if (!V.available()) {
+      lockMode = 'error';
+      $('#lockSub').textContent = 'Este navegador no permite cifrar los datos.';
+      lockMsg.textContent = 'Abre la app con un navegador actualizado (Chrome, Firefox, Safari o Edge).';
+      lockBtn.disabled = true;
+      return;
+    }
+    if (V.exists()) {
+      lockMode = 'unlock';
+    } else {
+      lockMode = 'setup';
+      const legacy = V.readLegacy();
+      $('#lockSub').textContent = legacy
+        ? 'Crea una contraseña. Tus datos actuales se cifrarán con ella.'
+        : 'Bienvenido. Crea una contraseña para proteger tus datos.';
+      $('#lockPass2Wrap').classList.remove('hidden');
+      lockPass.setAttribute('autocomplete', 'new-password');
+      lockBtn.textContent = 'Crear contraseña y entrar';
+      $('#lockForgot').classList.add('hidden');
+    }
+    setTimeout(() => lockPass.focus(), 50);
+  }
+
+  function lockError(msg) {
+    lockMsg.className = 'lock-msg';
+    lockMsg.textContent = msg;
+    lockForm.classList.remove('shake');
+    void lockForm.offsetWidth;
+    lockForm.classList.add('shake');
+    lockPass.select();
+  }
+
+  lockForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    if (lockBtn.disabled) return;
+    const pass = lockPass.value;
+    if (!pass) return lockError('Escribe tu contraseña.');
+    lockBtn.disabled = true;
+    lockBtn.dataset.busy = '1';
+    const label = lockBtn.textContent;
+    lockBtn.textContent = lockMode === 'setup' ? 'Cifrando…' : 'Comprobando…';
+    lockMsg.className = 'lock-msg info';
+    lockMsg.textContent = '';
+    try {
+      if (lockMode === 'setup') {
+        const problem = passwordProblem(pass, lockPass2.value);
+        if (problem) throw Object.assign(new Error(problem), { user: true });
+        const data = normalize(V.readLegacy());
+        session = await V.create(pass, data);
+        state = data;
+      } else {
+        const res = await V.open(pass);
+        session = res.session;
+        state = normalize(res.data);
+      }
+      lockPass.value = lockPass2.value = '';
+      start();
+    } catch (err) {
+      lockBtn.textContent = label;
+      if (err.user) lockError(err.message);
+      else if (err.wrong) {
+        const g = V.guard();
+        const left = 5 - g.fails;
+        lockError(left > 0 ? `Contraseña incorrecta. ${left === 1 ? 'Queda 1 intento' : `Quedan ${left} intentos`} antes de tener que esperar.` : 'Contraseña incorrecta.');
+      } else lockError('No se pudieron abrir los datos.');
+    } finally {
+      lockBtn.dataset.busy = '';
+      if (!started) {
+        lockBtn.disabled = false;
+        lockClock();
+      }
+    }
+  });
+
+  $('#lockEye').addEventListener('click', () => {
+    const show = lockPass.type === 'password';
+    lockPass.type = lockPass2.type = show ? 'text' : 'password';
+    $('#lockEye').setAttribute('aria-label', show ? 'Ocultar contraseña' : 'Mostrar contraseña');
+    lockPass.focus();
+  });
+  $('#lockForgot').addEventListener('click', () => $('#lockForgotBox').classList.toggle('hidden'));
+  $('#lockWipe').addEventListener('click', () => {
+    if (!confirm('Se borrarán todas las operaciones guardadas en este navegador. ¿Seguro?')) return;
+    V.wipe();
+    location.reload();
+  });
+
+  setupLock();
 })();

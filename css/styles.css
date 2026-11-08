@@ -130,6 +130,7 @@ main { max-width: 1280px; margin: 0 auto; padding: 24px; }
 .grid-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
 .grid-2 > .card { margin-bottom: 0; }
 .grid-2 { margin-bottom: 20px; }
+#tab-datos .grid-2 { align-items: start; }
 .chart-box { position: relative; height: 280px; }
 .chart-box.short { height: 220px; }
 .chart-empty { position: absolute; inset: 0; display: grid; place-items: center; color: var(--text-muted); font-size: 14px; text-align: center; padding: 20px; }
@@ -290,3 +291,66 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.4); }
   .topbar-actions { margin-left: auto; }
   .row-head { flex-direction: column; }
 }
+
+/* ---------- Pantalla de bloqueo ---------- */
+body.locked > header, body.locked > main { display: none !important; }
+body:not(.locked) .lock { display: none; }
+.lock {
+  position: fixed; inset: 0; z-index: 1000; overflow: hidden;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 28px;
+  padding: 24px; color: #f0efec;
+  background:
+    radial-gradient(1200px 600px at 15% -10%, rgba(57, 135, 229, 0.35), transparent 60%),
+    radial-gradient(900px 500px at 110% 110%, rgba(27, 175, 122, 0.22), transparent 60%),
+    linear-gradient(160deg, #0b1220 0%, #0d0d0d 55%, #0a1410 100%);
+}
+.lock-bg { position: absolute; left: 0; right: 0; bottom: 0; width: 100%; height: 55%; opacity: 0.9; pointer-events: none; }
+.lock-line { stroke-dasharray: 2600; stroke-dashoffset: 2600; animation: lockdraw 2.4s ease-out forwards; filter: drop-shadow(0 0 6px rgba(57,135,229,.6)); }
+.lock-area { opacity: 0; animation: lockfade 1.2s 1.2s ease-out forwards; }
+@keyframes lockdraw { to { stroke-dashoffset: 0; } }
+@keyframes lockfade { to { opacity: 1; } }
+.lock-top { position: relative; text-align: center; }
+.lock-time { font-size: clamp(56px, 11vw, 96px); font-weight: 200; letter-spacing: -0.04em; line-height: 1; font-variant-numeric: tabular-nums; }
+.lock-date { margin-top: 8px; font-size: 16px; color: #c3c2b7; }
+.lock-date::first-letter { text-transform: uppercase; }
+.lock-card {
+  position: relative; width: min(380px, 100%); padding: 30px 28px 22px; border-radius: 22px; text-align: center;
+  background: rgba(26, 26, 25, 0.55); border: 1px solid rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(18px) saturate(140%); -webkit-backdrop-filter: blur(18px) saturate(140%);
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  animation: lockin 0.5s ease-out;
+}
+@keyframes lockin { from { opacity: 0; transform: translateY(14px) scale(0.98); } }
+.lock-logo { display: inline-flex; filter: drop-shadow(0 6px 18px rgba(42, 120, 214, 0.55)); }
+.lock-card h1 { font-size: 24px; margin: 12px 0 4px; letter-spacing: -0.02em; font-weight: 700; }
+.lock-sub { margin: 0 0 20px; color: #c3c2b7; font-size: 14.5px; }
+.lock-field { position: relative; margin-bottom: 12px; }
+.lock-field input {
+  width: 100%; padding: 14px 46px 14px 16px; border-radius: 12px; font: inherit; font-size: 20px; letter-spacing: 0.25em;
+  text-align: center; color: #fff; background: rgba(255, 255, 255, 0.07); border: 1px solid rgba(255, 255, 255, 0.14);
+  outline: none; transition: border-color 0.15s, background 0.15s;
+}
+.lock-field input::placeholder { letter-spacing: normal; color: #898781; font-size: 15px; }
+.lock-field input:focus { border-color: #3987e5; background: rgba(255, 255, 255, 0.1); box-shadow: 0 0 0 4px rgba(57, 135, 229, 0.2); }
+.lock-eye { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); border: 0; background: none; color: #898781; cursor: pointer; padding: 6px; border-radius: 8px; }
+.lock-eye:hover { color: #fff; }
+.lock-btn {
+  width: 100%; padding: 13px; border: 0; border-radius: 12px; font: inherit; font-size: 15.5px; font-weight: 600; color: #fff; cursor: pointer;
+  background: linear-gradient(180deg, #3987e5, #2a6fc4); box-shadow: 0 8px 22px rgba(42, 120, 214, 0.35); transition: filter 0.15s, transform 0.05s;
+}
+.lock-btn:hover { filter: brightness(1.08); }
+.lock-btn:active { transform: translateY(1px); }
+.lock-btn:disabled { opacity: 0.6; cursor: progress; }
+.lock-msg { min-height: 20px; margin: 12px 0 0; font-size: 13.5px; color: #ff8a8a; }
+.lock-msg.info { color: #c3c2b7; }
+.lock-foot { display: flex; justify-content: center; align-items: center; gap: 6px; margin: 6px 0 4px; font-size: 12px; color: #898781; }
+.lock-link { border: 0; background: none; color: #898781; font: inherit; font-size: 12.5px; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+.lock-link:hover { color: #c3c2b7; }
+.lock-forgot { margin-top: 10px; font-size: 13px; color: #c3c2b7; text-align: left; }
+.lock-danger { width: 100%; margin-top: 6px; padding: 10px; border-radius: 10px; border: 1px solid rgba(230, 103, 103, 0.5); background: rgba(230, 103, 103, 0.1); color: #ff8a8a; font: inherit; cursor: pointer; }
+.shake { animation: shake 0.42s; }
+@keyframes shake { 15%, 55% { transform: translateX(-9px); } 35%, 75% { transform: translateX(9px); } 90% { transform: translateX(-3px); } }
+.pw-form { display: grid; gap: 10px; max-width: 320px; }
+.pw-form .field { max-width: none; }
+.tax-opts .check { margin-bottom: 8px; }
+@media (prefers-reduced-motion: reduce) { .lock-line, .lock-area, .lock-card { animation: none; stroke-dashoffset: 0; opacity: 1; } }

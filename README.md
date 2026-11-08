@@ -9,7 +9,8 @@ Aplicación web personal para llevar el control de mis inversiones en bolsa.
 - **Ventas**: ganancia o pérdida de cada venta calculada con el método **FIFO** (el que usa Hacienda), con la comisión de compra sumada al coste y la de venta restada del ingreso.
 - **Calculadora de venta**: simula cuánto ganarías vendiendo ahora a un precio, sin guardar nada. Al apuntar una venta también ves el resultado antes de guardarla.
 - **Gráficos**: evolución del capital invertido, distribución de la cartera, ganancia latente por valor, resultados por año y ganancia realizada acumulada.
-- **Fiscalidad**: resumen por año (ganancias, pérdidas, dividendos, retenciones, base del ahorro e IRPF estimado), aviso de la regla de los dos meses y exportación a CSV de las ventas del año, lote a lote, para la declaración de la renta.
+- **Ventas**: resumen por año (ganancias, pérdidas, dividendos), indicador orientativo de si superas los límites para tener que declarar (1.000 € de ganancia o 500 € de pérdida), aviso de la regla de los dos meses y exportación a CSV. Los impuestos están al **0 %** por defecto; se pueden activar en *Datos → Ajustes → Impuestos* (escala del ahorro o porcentaje fijo).
+- **Pantalla de bloqueo con contraseña**: la primera vez que abres la app eliges tu contraseña. Los datos se guardan cifrados (AES-256, clave derivada con PBKDF2-SHA256 de 600.000 iteraciones), se bloquea sola tras unos minutos sin usarla y frena los intentos repetidos. La contraseña no está en el código ni se guarda en ningún sitio, y se puede cambiar en *Datos → Seguridad*.
 - **Barra superior**: hora y fecha actuales y tu resultado total (latente + ventas + dividendos), siempre visible.
 - **Precios automáticos**: con una clave gratuita de [Finnhub](https://finnhub.io/register) (en *Datos → Ajustes*) los precios de tus posiciones abiertas se buscan solos cada 5 minutos. Puedes corregir cualquiera a mano.
 - **Multidivisa**: cada operación lleva su moneda (EUR, USD…). Los importes de cada valor se muestran en su moneda y los totales se convierten a la moneda principal con el tipo de cambio de *Datos → Ajustes*.
@@ -39,7 +40,7 @@ En los dividendos, `precio` es el importe bruto cobrado y `comision` la retenci�
 
 ## Avisos
 
-- La estimación del IRPF es orientativa (escala del ahorro 19 %–30 %): no tiene en cuenta pérdidas de años anteriores ni otros rendimientos.
+- Si activas los impuestos, la estimación es orientativa: no tiene en cuenta pérdidas de años anteriores ni otros rendimientos.
 - Google y Yahoo no permiten consultar cotizaciones desde una página web; por eso se usa Finnhub, que en su plan gratuito cubre sobre todo acciones de EE. UU. Para otras bolsas indica el símbolo o escribe el precio a mano.
 - El tipo de cambio se actualiza con el oficial del BCE (frankfurter.dev) salvo que lo fijes a mano.
 - Se usa un único tipo de cambio por moneda; para la renta, Hacienda pide el de la fecha de cada operación.
@@ -50,6 +51,7 @@ En los dividendos, `precio` es el importe bruto cobrado y `comision` la retenci�
 ```
 index.html      interfaz
 css/styles.css  estilos (claro y oscuro)
+js/vault.js     cifrado de los datos con la contraseña
 js/calc.js      cálculos (FIFO, posiciones, fiscalidad); sin dependencias
 js/app.js       lógica de la interfaz y gráficos (Chart.js desde CDN)
 ```
