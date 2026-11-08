@@ -1,9 +1,12 @@
 # gfinanzas
 
-Aplicación web personal para llevar el control de mis inversiones en bolsa.
+Aplicación web personal para llevar el control total de mi dinero: cuentas, gastos e ingresos del día a día e inversiones en bolsa.
 
 ## Qué hace
 
+- **Patrimonio**: cuánto tienes en total (cuentas + inversiones), con su evolución mes a mes.
+- **Cuentas**: banco, efectivo, ahorro, bróker… con su saldo, que se actualiza con lo que apuntas. Transferencias entre cuentas (también entre monedas) y «Ajustar saldo» para cuadrar con el banco.
+- **Gastos e ingresos**: apunte rápido con categorías (y categorías propias), resumen de cada mes, límites mensuales por categoría y comparación de los últimos 12 meses.
 - **Registrar operaciones**: compras, ventas y dividendos, con fecha, número de acciones, precio y comisión.
 - **Cartera**: acciones que tienes de cada valor, precio medio (con comisiones incluidas), capital invertido y, al escribir el precio actual, ganancia o pérdida latente y peso de cada valor.
 - **Ventas**: ganancia o pérdida de cada venta calculada con el método **FIFO** (el que usa Hacienda), con la comisión de compra sumada al coste y la de venta restada del ingreso.
@@ -52,6 +55,7 @@ En los dividendos, `precio` es el importe bruto cobrado y `comision` la retenci�
 index.html      interfaz
 css/styles.css  estilos (claro y oscuro)
 js/vault.js     cifrado de los datos con la contraseña
+js/wealth.js    cuentas, gastos, ingresos y patrimonio
 js/calc.js      cálculos (FIFO, posiciones, fiscalidad); sin dependencias
 js/app.js       lógica de la interfaz y gráficos (Chart.js desde CDN)
 ```

@@ -354,3 +354,80 @@ body:not(.locked) .lock { display: none; }
 .pw-form .field { max-width: none; }
 .tax-opts .check { margin-bottom: 8px; }
 @media (prefers-reduced-motion: reduce) { .lock-line, .lock-area, .lock-card { animation: none; stroke-dashoffset: 0; opacity: 1; } }
+
+/* ---------- Patrimonio y gastos ---------- */
+.subtabs { display: flex; gap: 4px; margin: -6px 0 18px; padding: 4px; background: var(--surface-2); border-radius: 10px; width: fit-content; max-width: 100%; overflow-x: auto; }
+.subtabs button { border: 0; background: none; color: var(--text-secondary); padding: 7px 14px; border-radius: 8px; font: inherit; cursor: pointer; white-space: nowrap; }
+.subtabs button.active { background: var(--surface-1); color: var(--text-primary); font-weight: 600; box-shadow: 0 1px 3px rgba(0,0,0,.1); }
+.add-wrap { position: relative; }
+.add-menu {
+  position: absolute; right: 0; top: calc(100% + 6px); z-index: 50; min-width: 250px; padding: 6px;
+  background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 12px 40px rgba(0,0,0,.18);
+}
+.add-menu button { display: flex; align-items: center; gap: 10px; width: 100%; padding: 9px 10px; border: 0; background: none; color: var(--text-primary); font: inherit; text-align: left; border-radius: 8px; cursor: pointer; }
+.add-menu button:hover, .add-menu button:focus-visible { background: var(--surface-2); outline: none; }
+.add-menu span { width: 22px; text-align: center; }
+.add-menu hr { border: 0; border-top: 1px solid var(--grid); margin: 4px 6px; }
+.acc-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
+.acc-tile { border: 1px solid var(--border); border-radius: 12px; padding: 14px; background: var(--page); display: flex; flex-direction: column; gap: 4px; }
+.acc-tile .acc-top { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+.acc-tile .acc-icon { font-size: 20px; }
+.acc-tile .acc-type { font-size: 12px; color: var(--text-muted); }
+.acc-tile .acc-bal { font-size: 22px; font-weight: 650; letter-spacing: -0.02em; margin-top: 4px; font-variant-numeric: tabular-nums; }
+.acc-tile .acc-sub { font-size: 12px; color: var(--text-muted); min-height: 16px; }
+.acc-tile .acc-actions { display: flex; gap: 6px; margin-top: 8px; }
+.acc-tile.inv { background: color-mix(in srgb, var(--series-1) 7%, var(--page)); cursor: pointer; }
+.acc-empty { color: var(--text-secondary); padding: 10px 0; }
+.month-nav { display: flex; align-items: center; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
+.month-nav h2 { font-size: 22px; min-width: 200px; text-align: center; }
+.month-nav h2::first-letter { text-transform: uppercase; }
+.month-nav .icon-btn { font-size: 26px; }
+.cat-list { display: grid; gap: 10px; }
+.cat-row { display: grid; grid-template-columns: 30px minmax(120px, 1fr) minmax(80px, 2fr) auto; align-items: center; gap: 12px; }
+.cat-row .ci { font-size: 20px; text-align: center; }
+.cat-row .cn { font-weight: 500; }
+.cat-row .cn small { display: block; color: var(--text-muted); font-weight: 400; }
+.cat-row .bar { height: 8px; border-radius: 4px; background: var(--surface-2); overflow: hidden; }
+.cat-row .bar i { display: block; height: 100%; border-radius: 4px; background: var(--series-1); }
+.cat-row .bar i.over { background: var(--bad); }
+.cat-row .bar i.warn { background: var(--warning); }
+.cat-row .cv { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.cat-row .cv small { display: block; color: var(--text-muted); }
+.cat-row input { width: 90px; }
+.amount-field { display: flex; align-items: center; justify-content: center; gap: 8px; margin: 4px 0 14px; }
+.amount-field input {
+  width: 100%; max-width: 260px; text-align: center; font-size: 36px; font-weight: 650; padding: 8px; border: 0;
+  border-bottom: 2px solid var(--border); background: none; color: var(--text-primary); font-variant-numeric: tabular-nums;
+}
+.amount-field input:focus { outline: none; border-bottom-color: var(--series-1); }
+.amount-field span { font-size: 26px; color: var(--text-secondary); }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; max-height: 150px; overflow-y: auto; }
+.chips label { cursor: pointer; }
+.chips input { position: absolute; opacity: 0; pointer-events: none; }
+.chips span { display: inline-flex; align-items: center; gap: 5px; padding: 6px 10px; border-radius: 99px; border: 1px solid var(--border); font-size: 13px; background: var(--surface-1); }
+.chips input:checked + span { background: var(--series-1); color: #fff; border-color: transparent; }
+.chips input:focus-visible + span { outline: 2px solid var(--series-1); outline-offset: 2px; }
+.dlg-form { padding: 20px 22px; }
+.dlg-foot .spacer { flex: 1; }
+.amt-neg { color: var(--bad-text); }
+.amt-pos { color: var(--good-text); }
+.cat-form { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+.cat-form input, .cat-form select { padding: 7px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-1); color: var(--text-primary); font: inherit; }
+.cat-form input[name=icon] { width: 56px; text-align: center; }
+.cat-form input[name=name] { flex: 1; min-width: 140px; }
+.custom-cat { display: inline-flex; align-items: center; gap: 6px; padding: 4px 6px 4px 10px; margin: 0 6px 6px 0; border: 1px solid var(--border); border-radius: 99px; font-size: 13px; }
+.custom-cat button { border: 0; background: none; color: var(--text-muted); cursor: pointer; font-size: 14px; }
+@media (max-width: 700px) {
+  .cat-row { grid-template-columns: 26px 1fr auto; }
+  .cat-row .bar { grid-column: 2 / 4; grid-row: 2; }
+  .month-nav h2 { min-width: 0; flex: 1; font-size: 19px; }
+  .live-clock #clockDate { display: none; }
+  .live { gap: 8px; }
+  .live-total { padding: 4px 8px; }
+  .live-total strong { font-size: 14px; }
+}
+
+#worthKpis { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+#worthKpis .kpi:first-child .value { font-size: 32px; }
+.live-total strong, .live-clock span { white-space: nowrap; }
+@media (max-width: 900px) { #worthKpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } #worthKpis .kpi:first-child { grid-column: span 2; } }

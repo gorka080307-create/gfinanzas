@@ -18,7 +18,16 @@
       version: 1,
       ops: [],
       prices: {},
-      settings: { currency: 'EUR', rates: {}, tax: { mode: 'none', rate: 0 }, autoLock: 10 },
+      accounts: [],
+      tx: [],
+      settings: {
+        currency: 'EUR',
+        rates: {},
+        tax: { mode: 'none', rate: 0 },
+        autoLock: 10,
+        budgets: {},
+        categories: { gasto: [], ingreso: [] },
+      },
       seq: 0,
     };
   }
@@ -126,6 +135,7 @@
     renderTopTotal();
     renderQuoteSettings();
     renderSecuritySettings();
+    renderWealth();
   }
 
   function renderWarnings() {
@@ -228,9 +238,12 @@
   function tickClock() {
     const now = new Date();
     $('#clockTime').textContent = now.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-    $('#clockDate').textContent = now.toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+    $('#clockDate').textContent = now.toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
   }
   function renderTopTotal() {
+    const w = $('#worthValue');
+    if (!state.ops.length && !state.accounts.length) w.textContent = '—';
+    else w.textContent = money(worthNow().total);
     const el = $('#totalValue');
     if (!state.ops.length) {
       el.textContent = '—';
@@ -991,15 +1004,50 @@
   });
 
   // ---------- Eventos generales ----------
+  const INV_TABS = ['resumen', 'cartera', 'operaciones', 'fiscal'];
+  let lastInvTab = 'resumen';
   function showTab(name) {
-    $$('.tabs button').forEach((b) => b.classList.toggle('active', b.dataset.tab === name));
+    if (name === 'inversiones') name = lastInvTab;
+    if (!$('#tab-' + name)) name = 'patrimonio';
+    const isInv = INV_TABS.includes(name);
+    if (isInv) lastInvTab = name;
+    $$('.tabs button').forEach((b) => b.classList.toggle('active', b.dataset.tab === (isInv ? 'inversiones' : name)));
+    $$('#invSubnav button').forEach((b) => b.classList.toggle('active', b.dataset.tab === name));
+    $('#invSubnav').classList.toggle('hidden', !isInv);
+    $('#warnings').classList.toggle('hidden', !isInv);
     $$('.tab-panel').forEach((p) => p.classList.toggle('active', p.id === 'tab-' + name));
     if (location.hash !== '#' + name) history.replaceState(null, '', '#' + name);
     if (name === 'resumen' && state.ops.length) renderCharts();
+    if (name === 'patrimonio') renderWealthCharts();
+    window.scrollTo({ top: 0 });
   }
-  $$('.tabs button').forEach((b) => b.addEventListener('click', () => showTab(b.dataset.tab)));
+  $$('.tabs button, #invSubnav button').forEach((b) => b.addEventListener('click', () => showTab(b.dataset.tab)));
 
-  $('#newOpBtn').addEventListener('click', () => openOp());
+  // Menú «+ Añadir»
+  const addMenu = $('#addMenu');
+  function toggleAddMenu(open) {
+    const show = open ?? addMenu.classList.contains('hidden');
+    addMenu.classList.toggle('hidden', !show);
+    $('#newOpBtn').setAttribute('aria-expanded', String(show));
+    if (show) addMenu.querySelector('button').focus();
+  }
+  $('#newOpBtn').addEventListener('click', (e) => {
+    e.stopPropagation();
+    toggleAddMenu();
+  });
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('.add-wrap')) toggleAddMenu(false);
+    const a = e.target.closest('[data-add]');
+    if (!a) return;
+    toggleAddMenu(false);
+    const what = a.dataset.add;
+    if (what === 'bolsa') openOp();
+    else if (what === 'cuenta') openAccount();
+    else openTx(null, what);
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') toggleAddMenu(false);
+  });
   document.addEventListener('click', (e) => {
     const a = e.target.closest('[data-action]');
     if (!a) return;
@@ -1056,6 +1104,7 @@
     root.dataset.theme = isDark ? 'light' : 'dark';
     try { localStorage.setItem('gfinanzas.theme', root.dataset.theme); } catch (e) {}
     if (state.ops.length) renderCharts();
+    if ($('#tab-patrimonio').classList.contains('active')) renderWealthCharts();
   });
   matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => state.ops.length && renderCharts());
 
@@ -1309,6 +1358,25 @@
       MSFT: { price: 470.0, date: d },
     };
     state.settings.lastCommission = 5;
+    // Cuentas y movimientos de ejemplo
+    const acc1 = { id: uid(), name: 'Banco', type: 'banco', currency: 'EUR', initial: 1850, initialDate: '2026-06-01', archived: false };
+    const acc2 = { id: uid(), name: 'Efectivo', type: 'efectivo', currency: 'EUR', initial: 150, initialDate: '2026-06-01', archived: false };
+    const acc3 = { id: uid(), name: 'Hucha', type: 'ahorro', currency: 'EUR', initial: 500, initialDate: '2026-06-01', archived: false };
+    state.accounts = [acc1, acc2, acc3];
+    const T = (date, type, amount, accountId, category, note = '') => ({ id: uid(), seq: ++state.seq, date, type, amount, accountId, category, note });
+    const months = W.monthRange('2026-06', today().slice(0, 7));
+    months.forEach((m, k) => {
+      state.tx.push(T(m + '-01', 'ingreso', 250, acc1.id, 'paga', 'Paga mensual'));
+      state.tx.push(T(m + '-03', 'gasto', 9.99, acc1.id, 'suscripciones', 'Spotify'));
+      state.tx.push(T(m + '-05', 'gasto', 32.4 + k * 3, acc1.id, 'super', 'Compra semanal'));
+      state.tx.push(T(m + '-07', 'gasto', 18.5, acc2.id, 'comida', 'Cena'));
+      state.tx.push(T(m + '-08', 'gasto', 20, acc1.id, 'transporte', 'Abono transporte'));
+      if (k % 2) state.tx.push(T(m + '-06', 'gasto', 45, acc1.id, 'ocio', 'Concierto'));
+      if (k === 2) state.tx.push(T(m + '-04', 'gasto', 59.9, acc1.id, 'ropa', 'Zapatillas'));
+      state.tx.push(T(m + '-02', 'transferencia', 50, acc1.id, null, 'Ahorro del mes'));
+      state.tx[state.tx.length - 1].toAccountId = acc3.id;
+    });
+    state.settings.budgets = { comida: 60, ocio: 50, super: 120 };
     state.settings.currency = 'EUR';
     state.settings.rates = { ...(state.settings.rates || {}), USD: state.settings.rates?.USD || 1.16 };
     save();
@@ -1346,6 +1414,609 @@
       e.preventDefault();
       showTab(g.dataset.goto);
     }
+  });
+
+  // =====================================================================
+  //  PATRIMONIO: cuentas, gastos e ingresos
+  // =====================================================================
+  const W = window.GWealth;
+  let wcharts = {};
+  let viewMonth = today().slice(0, 7);
+  let editingTx = null;
+  let editingAcc = null;
+  let budgetEdit = false;
+
+  const accById = (id) => state.accounts.find((a) => a.id === id);
+  const activeAccounts = () => state.accounts.filter((a) => !a.archived);
+  const AJUSTE = { id: 'ajuste', name: 'Ajuste de saldo', icon: '⚖️' };
+  function categories(kind) {
+    const custom = (state.settings.categories && state.settings.categories[kind]) || [];
+    return [...W.DEFAULT_CATEGORIES[kind], ...custom];
+  }
+  function catInfo(id) {
+    if (id === 'ajuste') return AJUSTE;
+    return categories('gasto').concat(categories('ingreso')).find((c) => c.id === id) || { id, name: 'Sin categoría', icon: '❔' };
+  }
+  const monthName = (m) => {
+    const [y, mo] = m.split('-').map(Number);
+    return new Date(y, mo - 1, 1).toLocaleDateString('es-ES', { month: 'long', year: 'numeric' });
+  };
+  const shiftMonth = (m, d) => {
+    const [y, mo] = m.split('-').map(Number);
+    const dt = new Date(y, mo - 1 + d, 1);
+    return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}`;
+  };
+  const sortedTx = () =>
+    state.tx.slice().sort((a, b) => (a.date !== b.date ? (a.date < b.date ? 1 : -1) : (b.seq || 0) - (a.seq || 0)));
+
+  /** Valor de las inversiones ahora: precio actual si lo hay, coste si no. */
+  function investmentsNow() {
+    const unpriced = val.rows.filter((r) => r.price == null);
+    return val.value + unpriced.reduce((s2, r) => s2 + r.costB, 0);
+  }
+  function worthNow() {
+    const cash = W.cashTotal(state.accounts, state.tx, fxOpts());
+    const inv = investmentsNow();
+    return { cash, inv, total: cash + inv };
+  }
+
+  function renderWealth() {
+    const fx = fxOpts();
+    const w = worthNow();
+    const cur = today().slice(0, 7);
+    const ms = W.monthSummary(state.accounts, state.tx, cur, fx);
+
+    // KPIs de patrimonio
+    $('#worthKpis').innerHTML = [
+      kpi('Patrimonio total', money(w.total), 'Dinero en cuentas + inversiones'),
+      kpi('En cuentas', money(w.cash), `${activeAccounts().length} cuenta${activeAccounts().length === 1 ? '' : 's'}`),
+      kpi('En inversiones', money(w.inv), val.rows.length ? `${val.rows.length} posici${val.rows.length === 1 ? 'ón abierta' : 'ones abiertas'}` : 'Sin posiciones abiertas'),
+      kpi('Ingresos este mes', money(ms.income), monthName(cur), '', ms.income ? 'pos' : ''),
+      kpi('Gastos este mes', money(ms.expense), `${ms.expenseCount || 0} gasto${ms.expenseCount === 1 ? '' : 's'}`, '', ms.expense ? 'neg' : ''),
+      kpi(
+        'Ahorro del mes',
+        money(ms.net, { sign: true }),
+        ms.savingsRate != null ? `${pct(ms.savingsRate, false)} de lo que ha entrado` : 'Ingresos − gastos',
+        '',
+        cls(ms.net)
+      ),
+    ].join('');
+
+    // Cuentas
+    const bal = W.balances(state.accounts, state.tx);
+    const tiles = activeAccounts().map((a) => {
+      const t = W.ACCOUNT_TYPES[a.type] || W.ACCOUNT_TYPES.otro;
+      const b = bal[a.id] || 0;
+      const inBase = a.currency !== base() ? money(C.makeFx(fx).toBase(b, a.currency)) : '';
+      return `<div class="acc-tile">
+        <div class="acc-top"><span class="acc-icon">${t.icon}</span>${esc(a.name)}</div>
+        <div class="acc-type">${t.label}</div>
+        <div class="acc-bal ${b < 0 ? 'neg' : ''}">${money(b, { ccy: a.currency })}</div>
+        <div class="acc-sub">${inBase}</div>
+        <div class="acc-actions">
+          <button class="btn sm" data-acc-adjust="${a.id}">Ajustar saldo</button>
+          <button class="btn sm" data-acc-edit="${a.id}">Editar</button>
+        </div>
+      </div>`;
+    });
+    tiles.push(`<div class="acc-tile inv" data-goto="inversiones" title="Ver inversiones">
+        <div class="acc-top"><span class="acc-icon">📊</span>Inversiones</div>
+        <div class="acc-type">Valor actual de tu cartera</div>
+        <div class="acc-bal">${money(w.inv)}</div>
+        <div class="acc-sub">${state.ops.length ? 'Resultado: ' + money(val.unrealized + pf.totals.realized + pf.totals.dividends, { sign: true }) : 'Sin operaciones'}</div>
+      </div>`);
+    $('#accGrid').innerHTML =
+      (state.accounts.length
+        ? ''
+        : '<p class="acc-empty" style="grid-column:1/-1">Añade tus cuentas (banco, efectivo, ahorro…) con lo que tienes ahora en cada una para empezar a llevar el control.</p>') +
+      tiles.join('');
+
+    // Últimos movimientos
+    const recent = sortedTx().slice(0, 7);
+    $('#recentTable').innerHTML = recent.length
+      ? `<tbody>${recent.map((t) => txRow(t, true)).join('')}</tbody>`
+      : '<tbody><tr class="empty-row"><td>Aún no has apuntado gastos ni ingresos. Pulsa «+ Añadir».</td></tr></tbody>';
+
+    renderMonth();
+    renderCategorySettings();
+    if ($('#tab-patrimonio').classList.contains('active')) renderWealthCharts();
+  }
+
+  function txAmountHtml(t) {
+    const a = accById(t.accountId);
+    const ccy = a ? a.currency : base();
+    if (t.type === 'transferencia') return `<span class="muted">${money(C.num(t.amount), { ccy })}</span>`;
+    const sign = t.type === 'gasto' ? -1 : 1;
+    return `<span class="${sign < 0 ? 'amt-neg' : 'amt-pos'}">${money(sign * C.num(t.amount), { ccy, sign: true })}</span>`;
+  }
+  function txRow(t, compact) {
+    const a = accById(t.accountId);
+    const to = accById(t.toAccountId);
+    const c = t.type === 'transferencia' ? { icon: '🔁', name: 'Transferencia' } : catInfo(t.category);
+    const detail = t.type === 'transferencia' ? `${esc(a ? a.name : '?')} → ${esc(to ? to.name : '?')}` : esc(a ? a.name : 'Cuenta borrada');
+    return `<tr class="tx-row" data-tx="${t.id}" style="cursor:pointer">
+      ${compact ? '' : `<td>${fmtDate(t.date)}</td>`}
+      <td><span style="font-size:18px;margin-right:6px">${c.icon}</span>${esc(t.note || c.name)}
+        <span class="sub">${compact ? fmtDate(t.date) + ' · ' : ''}${t.note ? esc(c.name) + ' · ' : ''}${detail}</span></td>
+      <td class="num">${txAmountHtml(t)}</td>
+    </tr>`;
+  }
+
+  function renderMonth() {
+    const fx = fxOpts();
+    const m = viewMonth;
+    $('#monthLabel').textContent = monthName(m);
+    $('#monthNext').disabled = m >= today().slice(0, 7);
+    const ms = W.monthSummary(state.accounts, state.tx, m, fx);
+    const isCur = m === today().slice(0, 7);
+    const days = isCur ? new Date().getDate() : new Date(+m.slice(0, 4), +m.slice(5, 7), 0).getDate();
+    $('#monthKpis').innerHTML = [
+      kpi('Ingresos', money(ms.income), '', '', ms.income ? 'pos' : ''),
+      kpi('Gastos', money(ms.expense), `${money(ms.expense / days)} al día de media`, '', ms.expense ? 'neg' : ''),
+      kpi('Ahorro', money(ms.net, { sign: true }), ms.savingsRate != null ? `${pct(ms.savingsRate, false)} de los ingresos` : '', '', cls(ms.net)),
+    ].join('');
+
+    // Categorías con límites
+    const budgets = state.settings.budgets || {};
+    const cats = categories('gasto').filter((c) => ms.byCategory[c.id] || budgets[c.id] || budgetEdit);
+    const prevMs = W.monthSummary(state.accounts, state.tx, shiftMonth(m, -1), fx);
+    $('#budgetEditBtn').textContent = budgetEdit ? 'Hecho' : 'Editar límites';
+    $('#catList').innerHTML = cats.length
+      ? cats
+          .sort((a, b) => (ms.byCategory[b.id] || 0) - (ms.byCategory[a.id] || 0))
+          .map((c) => {
+            const spent = ms.byCategory[c.id] || 0;
+            const lim = C.num(budgets[c.id]);
+            const ratio = lim > 0 ? spent / lim : null;
+            const maxSpent = Math.max(...Object.values(ms.byCategory), 1);
+            const width = lim > 0 ? Math.min(100, ratio * 100) : (spent / maxSpent) * 100;
+            const barCls = ratio == null ? '' : ratio > 1 ? 'over' : ratio > 0.8 ? 'warn' : '';
+            const prev = prevMs.byCategory[c.id] || 0;
+            const sub = lim > 0
+              ? ratio > 1 ? `⚠ Te has pasado ${money(spent - lim)}` : `Te quedan ${money(lim - spent)}`
+              : prev ? `Mes anterior: ${money(prev)}` : '';
+            return `<div class="cat-row">
+              <span class="ci">${c.icon}</span>
+              <span class="cn">${esc(c.name)}<small>${sub}</small></span>
+              <span class="bar"><i class="${barCls}" style="width:${width}%"></i></span>
+              <span class="cv">${
+                budgetEdit
+                  ? `<input class="price-input" type="number" min="0" step="1" data-budget="${c.id}" value="${lim || ''}" placeholder="Sin límite" />`
+                  : `${money(spent)}${lim > 0 ? `<small>de ${money(lim)}</small>` : ''}`
+              }</span>
+            </div>`;
+          })
+          .join('')
+      : '<p class="muted">No hay gastos este mes.</p>';
+
+    // Filtros
+    const catSel = $('#txCatFilter');
+    const curCat = catSel.value;
+    catSel.innerHTML =
+      '<option value="">Todas las categorías</option>' +
+      [...categories('gasto'), ...categories('ingreso'), AJUSTE].map((c) => `<option value="${c.id}">${c.icon} ${esc(c.name)}</option>`).join('');
+    catSel.value = curCat;
+    const accSel = $('#txAccFilter');
+    const curAcc = accSel.value;
+    accSel.innerHTML = '<option value="">Todas las cuentas</option>' + state.accounts.map((a) => `<option value="${a.id}">${esc(a.name)}</option>`).join('');
+    accSel.value = curAcc;
+
+    const q = $('#txSearch').value.trim().toLowerCase();
+    const ty = $('#txTypeFilter').value;
+    const list = sortedTx().filter(
+      (t) =>
+        t.date.startsWith(m) &&
+        (!ty || t.type === ty) &&
+        (!catSel.value || t.category === catSel.value) &&
+        (!accSel.value || t.accountId === accSel.value || t.toAccountId === accSel.value) &&
+        (!q || String(t.note || '').toLowerCase().includes(q) || catInfo(t.category).name.toLowerCase().includes(q))
+    );
+    $('#txCount').textContent = `${list.length} movimiento${list.length === 1 ? '' : 's'}`;
+    $('#txTable').innerHTML = list.length
+      ? `<thead><tr><th>Fecha</th><th>Concepto</th><th class="num">Importe</th></tr></thead><tbody>${list.map((t) => txRow(t)).join('')}</tbody>`
+      : `<tbody><tr class="empty-row"><td>No hay movimientos en ${monthName(m)}.</td></tr></tbody>`;
+  }
+
+  function chartTheme() {
+    Chart.defaults.font.family = getComputedStyle(document.body).fontFamily;
+    Chart.defaults.font.size = 12;
+    Chart.defaults.color = css('--text-muted');
+    Chart.defaults.plugins.tooltip.backgroundColor = css('--text-primary');
+    Chart.defaults.plugins.tooltip.titleColor = css('--surface-1');
+    Chart.defaults.plugins.tooltip.bodyColor = css('--surface-1');
+    Chart.defaults.plugins.tooltip.padding = 10;
+    Chart.defaults.plugins.tooltip.cornerRadius = 8;
+    Chart.defaults.maintainAspectRatio = false;
+    return {
+      ink: css('--text-secondary'), grid: css('--grid'), surface: css('--surface-1'),
+      s1: css('--series-1'), s2: css('--series-2'), s3: css('--series-3'), good: css('--good'), bad: css('--bad'),
+    };
+  }
+
+  function renderWealthCharts() {
+    Object.values(wcharts).forEach((c) => c.destroy());
+    wcharts = {};
+    const cvW = $('#chartWorth');
+    const cvC = $('#chartCats');
+    const cvIO = $('#chartIO');
+    if (!window.Chart) {
+      [cvW, cvC, cvIO].forEach((c) => chartMsg(c, 'No se pudo cargar la librería de gráficos (¿sin conexión?).'));
+      return;
+    }
+    const th = chartTheme();
+    const fx = fxOpts();
+    const t0 = today();
+    const yMoney = { grid: { color: th.grid }, border: { display: false }, ticks: { callback: (v) => money(v, { decimals: 0 }), maxTicksLimit: 6 } };
+
+    // Evolución del patrimonio
+    const opsSorted = C.sortOps(state.ops);
+    const invNow = investmentsNow();
+    const investedAt = (d) => (d >= t0 ? invNow : C.computePortfolio(opsSorted.filter((o) => o.date <= d), fx).totals.invested);
+    investedAt.firstDate = opsSorted.length ? opsSorted[0].date : null;
+    const series = W.netWorthSeries(state.accounts, state.tx, fx, investedAt, t0);
+    if (series.length) {
+      chartMsg(cvW, null);
+      const labels = series.map((p) => {
+        const [y, mo] = p.month.split('-').map(Number);
+        return new Date(y, mo - 1, 1).toLocaleDateString('es-ES', { month: 'short', year: '2-digit' });
+      });
+      const ds = (label, key, color, fill) => ({
+        label, data: series.map((p) => p[key]), borderColor: color, backgroundColor: fill ? hexA(color, 0.12) : color,
+        fill: !!fill, borderWidth: 2, pointRadius: series.length > 18 ? 0 : 3, pointHoverRadius: 5, tension: 0.25,
+      });
+      wcharts.worth = new Chart(cvW, {
+        type: 'line',
+        data: { labels, datasets: [ds('Patrimonio total', 'total', th.s1, true), ds('En cuentas', 'cash', th.s2), ds('Inversiones', 'investments', th.s3)] },
+        options: {
+          interaction: { mode: 'index', intersect: false },
+          plugins: {
+            legend: { position: 'top', align: 'end', labels: { boxWidth: 10, boxHeight: 10, useBorderRadius: true, borderRadius: 2, color: th.ink } },
+            tooltip: { callbacks: { label: (it) => ` ${it.dataset.label}: ${money(it.parsed.y)}` } },
+          },
+          scales: { x: { grid: { display: false } }, y: yMoney },
+        },
+      });
+    } else chartMsg(cvW, 'Añade tus cuentas o inversiones para ver la evolución');
+
+    // Gastos del mes por categoría
+    const cur = t0.slice(0, 7);
+    const ms = W.monthSummary(state.accounts, state.tx, cur, fx);
+    const cats = Object.entries(ms.byCategory).sort((a, b) => b[1] - a[1]);
+    $('#catChartNote').textContent = ms.expense ? `${money(ms.expense)} en total` : '';
+    if (cats.length) {
+      chartMsg(cvC, null);
+      const top = cats.slice(0, 8);
+      if (cats.length > 8) top.push(['__otros', cats.slice(8).reduce((s2, c) => s2 + c[1], 0)]);
+      wcharts.cats = new Chart(cvC, {
+        type: 'bar',
+        data: {
+          labels: top.map(([id]) => (id === '__otros' ? 'Otras' : `${catInfo(id).icon} ${catInfo(id).name}`)),
+          datasets: [{ data: top.map((c) => c[1]), backgroundColor: th.s1, borderRadius: 4, borderSkipped: 'start', maxBarThickness: 22 }],
+        },
+        options: {
+          indexAxis: 'y',
+          plugins: { legend: { display: false }, tooltip: { callbacks: { label: (it) => ` ${money(it.parsed.x)} (${pct(it.parsed.x / ms.expense, false)})` } } },
+          scales: { x: { ...yMoney, beginAtZero: true }, y: { grid: { display: false }, ticks: { color: th.ink } } },
+        },
+      });
+    } else chartMsg(cvC, 'Sin gastos este mes');
+
+    // Ingresos y gastos, 12 meses
+    const months = W.monthRange(shiftMonth(cur, -11), cur);
+    const sums = months.map((m) => W.monthSummary(state.accounts, state.tx, m, fx));
+    if (sums.some((x) => x.income || x.expense)) {
+      chartMsg(cvIO, null);
+      wcharts.io = new Chart(cvIO, {
+        type: 'bar',
+        data: {
+          labels: months.map((m) => {
+            const [y, mo] = m.split('-').map(Number);
+            return new Date(y, mo - 1, 1).toLocaleDateString('es-ES', { month: 'short' });
+          }),
+          datasets: [
+            { label: 'Ingresos', data: sums.map((x) => x.income), backgroundColor: th.s1, borderRadius: 4, borderSkipped: 'start', maxBarThickness: 18 },
+            { label: 'Gastos', data: sums.map((x) => x.expense), backgroundColor: th.s2, borderRadius: 4, borderSkipped: 'start', maxBarThickness: 18 },
+          ],
+        },
+        options: {
+          plugins: {
+            legend: { position: 'top', align: 'end', labels: { boxWidth: 10, boxHeight: 10, useBorderRadius: true, borderRadius: 2, color: th.ink } },
+            tooltip: {
+              callbacks: {
+                label: (it) => ` ${it.dataset.label}: ${money(it.parsed.y)}`,
+                footer: (its) => `Ahorro: ${money(sums[its[0].dataIndex].net, { sign: true })}`,
+              },
+            },
+          },
+          scales: { x: { grid: { display: false } }, y: { ...yMoney, beginAtZero: true } },
+        },
+      });
+    } else chartMsg(cvIO, 'Apunta tus gastos e ingresos para ver la comparación');
+  }
+
+  // ---------- Diálogo de movimiento ----------
+  const txDlg = $('#txDialog');
+  const txForm = $('#txForm');
+  const txType = () => txForm.querySelector('input[name="type"]:checked').value;
+
+  function ensureAccount() {
+    if (activeAccounts().length) return true;
+    toast('Primero crea una cuenta (por ejemplo, tu banco o el efectivo).');
+    openAccount();
+    return false;
+  }
+
+  function openTx(t, type) {
+    if (!t && !ensureAccount()) return;
+    editingTx = t ? t.id : null;
+    txForm.reset();
+    const ty = t ? t.type : type || 'gasto';
+    txForm.querySelector(`input[name="type"][value="${ty}"]`).checked = true;
+    const accOpts = state.accounts
+      .filter((a) => !a.archived || (t && (a.id === t.accountId || a.id === t.toAccountId)))
+      .map((a) => `<option value="${a.id}">${(W.ACCOUNT_TYPES[a.type] || W.ACCOUNT_TYPES.otro).icon} ${esc(a.name)} (${a.currency})</option>`)
+      .join('');
+    txForm.accountId.innerHTML = accOpts;
+    txForm.toAccountId.innerHTML = accOpts;
+    const lastAcc = state.settings.lastAccount && accById(state.settings.lastAccount) ? state.settings.lastAccount : activeAccounts()[0].id;
+    txForm.accountId.value = t ? t.accountId : lastAcc;
+    if (t && t.toAccountId) txForm.toAccountId.value = t.toAccountId;
+    else {
+      const other = activeAccounts().find((a) => a.id !== txForm.accountId.value);
+      if (other) txForm.toAccountId.value = other.id;
+    }
+    txForm.amount.value = t ? t.amount : '';
+    txForm.toAmount.value = t && t.toAmount != null ? t.toAmount : '';
+    txForm.date.value = t ? t.date : today();
+    txForm.note.value = t ? t.note || '' : '';
+    $('#txDelete').classList.toggle('hidden', !t);
+    $('#txSaveMore').classList.toggle('hidden', !!t);
+    syncTx(t ? t.category : null);
+    txDlg.showModal();
+    setTimeout(() => txForm.amount.focus(), 30);
+  }
+
+  function syncTx(selectCat) {
+    const ty = txType();
+    const isTr = ty === 'transferencia';
+    $('#txTitle').textContent = (editingTx ? 'Editar ' : 'Nuevo ') + (ty === 'gasto' ? 'gasto' : ty === 'ingreso' ? 'ingreso' : 'traspaso');
+    if (!editingTx && ty === 'transferencia') $('#txTitle').textContent = 'Nueva transferencia';
+    $('#txAccLabel').textContent = isTr ? 'Desde la cuenta' : ty === 'ingreso' ? 'Entra en la cuenta' : 'Pagado con';
+    $('.tx-to', txForm).classList.toggle('hidden', !isTr);
+    $('#txChips').classList.toggle('hidden', isTr);
+    const from = accById(txForm.accountId.value);
+    const to = accById(txForm.toAccountId.value);
+    $('#txCcy').textContent = from ? from.currency : base();
+    $('.tx-toamount', txForm).classList.toggle('hidden', !(isTr && from && to && from.currency !== to.currency));
+    if (!isTr) {
+      const current = selectCat || (txForm.querySelector('input[name="cat"]:checked') || {}).value;
+      const list = categories(ty);
+      if (current === 'ajuste') list.push(AJUSTE);
+      $('#txChips').innerHTML = list
+        .map((c) => `<label><input type="radio" name="cat" value="${c.id}" /><span>${c.icon} ${esc(c.name)}</span></label>`)
+        .join('');
+      const chosen = list.find((c) => c.id === current) ? current : list[0].id;
+      txForm.querySelector(`input[name="cat"][value="${chosen}"]`).checked = true;
+    }
+  }
+  txForm.addEventListener('change', (e) => {
+    if (e.target.name === 'type') syncTx();
+    if (e.target.name === 'accountId' || e.target.name === 'toAccountId') syncTx((txForm.querySelector('input[name="cat"]:checked') || {}).value);
+  });
+
+  function saveTx(keepOpen) {
+    const ty = txType();
+    const amount = Math.abs(C.num(txForm.amount.value));
+    if (!(amount > 0)) return toast('Escribe un importe.');
+    if (!txForm.date.value) return toast('Falta la fecha.');
+    const t = {
+      id: editingTx || uid(),
+      type: ty,
+      date: txForm.date.value,
+      amount: Math.round(amount * 100) / 100,
+      accountId: txForm.accountId.value,
+      note: txForm.note.value.trim(),
+    };
+    if (ty === 'transferencia') {
+      t.toAccountId = txForm.toAccountId.value;
+      if (t.toAccountId === t.accountId) return toast('Elige dos cuentas distintas.');
+      const from = accById(t.accountId);
+      const to = accById(t.toAccountId);
+      if (from.currency !== to.currency) {
+        const ta = Math.abs(C.num(txForm.toAmount.value));
+        if (!(ta > 0)) return toast('Indica cuánto llega a la otra cuenta.');
+        t.toAmount = ta;
+      }
+    } else {
+      t.category = (txForm.querySelector('input[name="cat"]:checked') || {}).value || (ty === 'gasto' ? 'otros_g' : 'otros_i');
+    }
+    if (editingTx) {
+      const i = state.tx.findIndex((x) => x.id === editingTx);
+      t.seq = state.tx[i].seq;
+      state.tx[i] = t;
+    } else {
+      t.seq = ++state.seq;
+      state.tx.push(t);
+    }
+    state.settings.lastAccount = t.accountId;
+    save();
+    render();
+    toast(editingTx ? 'Movimiento actualizado' : ty === 'gasto' ? 'Gasto guardado' : ty === 'ingreso' ? 'Ingreso guardado' : 'Transferencia guardada');
+    if (keepOpen) {
+      const keepDate = txForm.date.value;
+      const keepAcc = txForm.accountId.value;
+      openTx(null, ty);
+      txForm.date.value = keepDate;
+      txForm.accountId.value = keepAcc;
+    } else txDlg.close();
+  }
+  txForm.addEventListener('submit', (e) => {
+    e.preventDefault();
+    saveTx(false);
+  });
+  $('#txSaveMore').addEventListener('click', () => saveTx(true));
+  $('#txDelete').addEventListener('click', () => {
+    if (!editingTx || !confirm('¿Borrar este movimiento?')) return;
+    state.tx = state.tx.filter((x) => x.id !== editingTx);
+    save();
+    render();
+    txDlg.close();
+    toast('Movimiento borrado');
+  });
+  document.addEventListener('click', (e) => {
+    const row = e.target.closest('[data-tx]');
+    if (row) openTx(state.tx.find((t) => t.id === row.dataset.tx));
+  });
+
+  // ---------- Cuentas ----------
+  const accDlg = $('#accDialog');
+  const accForm = $('#accForm');
+  accForm.type.innerHTML = Object.entries(W.ACCOUNT_TYPES)
+    .map(([k, v]) => `<option value="${k}">${v.icon} ${v.label}</option>`)
+    .join('');
+  function openAccount(a) {
+    editingAcc = a ? a.id : null;
+    accForm.reset();
+    $('#accTitle').textContent = a ? 'Editar cuenta' : 'Nueva cuenta';
+    accForm.name.value = a ? a.name : '';
+    accForm.type.value = a ? a.type : 'banco';
+    accForm.currency.value = a ? a.currency : base();
+    accForm.initial.value = a ? a.initial : 0;
+    accForm.initialDate.value = a ? a.initialDate || today() : today();
+    $('.acc-initial-note', accForm).textContent = a
+      ? 'Saldo inicial: lo que tenías en esa fecha. Para corregir el saldo de hoy, usa mejor «Ajustar saldo».'
+      : 'Pon lo que tienes ahora mismo en esa cuenta. A partir de ahí, se actualiza con tus gastos e ingresos.';
+    $$('.acc-initial', accForm)[0].firstChild.textContent = a ? 'Saldo inicial' : 'Saldo actual';
+    $('#accDelete').classList.toggle('hidden', !a);
+    accDlg.showModal();
+    setTimeout(() => accForm.name.focus(), 30);
+  }
+  accForm.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const name = accForm.name.value.trim();
+    if (!name) return toast('Ponle un nombre a la cuenta.');
+    const data = {
+      name,
+      type: accForm.type.value,
+      currency: accForm.currency.value,
+      initial: C.num(accForm.initial.value),
+      initialDate: accForm.initialDate.value || today(),
+    };
+    if (editingAcc) Object.assign(accById(editingAcc), data);
+    else state.accounts.push({ id: uid(), archived: false, ...data });
+    save();
+    accDlg.close();
+    render();
+    toast(editingAcc ? 'Cuenta actualizada' : 'Cuenta creada');
+  });
+  $('#accDelete').addEventListener('click', () => {
+    const a = accById(editingAcc);
+    if (!a) return;
+    const used = state.tx.some((t) => t.accountId === a.id || t.toAccountId === a.id);
+    if (used) {
+      if (!confirm(`«${a.name}» tiene movimientos. Se ocultará pero se conservará su historial. ¿Continuar?`)) return;
+      a.archived = true;
+    } else {
+      if (!confirm(`¿Eliminar la cuenta «${a.name}»?`)) return;
+      state.accounts = state.accounts.filter((x) => x.id !== a.id);
+    }
+    save();
+    accDlg.close();
+    render();
+    toast('Cuenta eliminada');
+  });
+
+  // Ajuste de saldo
+  const adjDlg = $('#adjDialog');
+  const adjForm = $('#adjForm');
+  let adjAcc = null;
+  document.addEventListener('click', (e) => {
+    const ed = e.target.closest('[data-acc-edit]');
+    const ad = e.target.closest('[data-acc-adjust]');
+    if (ed) openAccount(accById(ed.dataset.accEdit));
+    if (ad) {
+      adjAcc = accById(ad.dataset.accAdjust);
+      const b = W.balances(state.accounts, state.tx)[adjAcc.id] || 0;
+      $('#adjInfo').textContent = `Según la app, en «${adjAcc.name}» tienes ${money(b, { ccy: adjAcc.currency })}. ¿Cuánto tienes de verdad?`;
+      adjForm.reset();
+      adjForm.real.value = Math.round(b * 100) / 100;
+      adjDlg.showModal();
+      setTimeout(() => adjForm.real.select(), 30);
+    }
+  });
+  adjForm.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const b = W.balances(state.accounts, state.tx)[adjAcc.id] || 0;
+    const diff = Math.round((C.num(adjForm.real.value) - b) * 100) / 100;
+    if (Math.abs(diff) < 0.005) {
+      adjDlg.close();
+      return toast('El saldo ya cuadra');
+    }
+    state.tx.push({
+      id: uid(), seq: ++state.seq, type: diff > 0 ? 'ingreso' : 'gasto', amount: Math.abs(diff),
+      accountId: adjAcc.id, category: 'ajuste', date: today(), note: 'Ajuste de saldo',
+    });
+    save();
+    adjDlg.close();
+    render();
+    toast('Saldo ajustado');
+  });
+
+  $$('dialog [data-close]').forEach((b) => b.addEventListener('click', () => b.closest('dialog').close()));
+
+  // Navegación por meses, filtros y límites
+  $('#monthPrev').addEventListener('click', () => {
+    viewMonth = shiftMonth(viewMonth, -1);
+    renderMonth();
+  });
+  $('#monthNext').addEventListener('click', () => {
+    if (viewMonth < today().slice(0, 7)) viewMonth = shiftMonth(viewMonth, 1);
+    renderMonth();
+  });
+  ['#txSearch', '#txTypeFilter', '#txCatFilter', '#txAccFilter'].forEach((sel) => $(sel).addEventListener('input', renderMonth));
+  $('#budgetEditBtn').addEventListener('click', () => {
+    budgetEdit = !budgetEdit;
+    renderMonth();
+  });
+  $('#catList').addEventListener('change', (e) => {
+    const id = e.target.dataset.budget;
+    if (!id) return;
+    state.settings.budgets = state.settings.budgets || {};
+    const v = C.num(e.target.value);
+    if (v > 0) state.settings.budgets[id] = v;
+    else delete state.settings.budgets[id];
+    save();
+  });
+
+  // Categorías propias
+  function renderCategorySettings() {
+    const cats = state.settings.categories || { gasto: [], ingreso: [] };
+    const all = [...(cats.gasto || []).map((c) => ({ ...c, kind: 'gasto' })), ...(cats.ingreso || []).map((c) => ({ ...c, kind: 'ingreso' }))];
+    $('#customCats').innerHTML = all.length
+      ? all.map((c) => `<span class="custom-cat">${c.icon} ${esc(c.name)} <small class="muted">(${c.kind})</small><button data-delcat="${c.kind}|${c.id}" aria-label="Quitar">✕</button></span>`).join('')
+      : '<p class="muted small">Aún no has creado ninguna.</p>';
+  }
+  $('#catForm').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const f = e.target;
+    const kind = f.kind.value;
+    const name = f.name.value.trim();
+    if (!name) return;
+    state.settings.categories = state.settings.categories || { gasto: [], ingreso: [] };
+    (state.settings.categories[kind] = state.settings.categories[kind] || []).push({ id: 'c_' + uid(), name, icon: f.icon.value.trim() || (kind === 'gasto' ? '🏷️' : '💰') });
+    save();
+    f.reset();
+    render();
+    toast('Categoría añadida');
+  });
+  $('#customCats').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-delcat]');
+    if (!b) return;
+    const [kind, id] = b.dataset.delcat.split('|');
+    if (state.tx.some((t) => t.category === id) && !confirm('Hay movimientos con esta categoría; se mostrarán como «Sin categoría». ¿Quitarla?')) return;
+    state.settings.categories[kind] = state.settings.categories[kind].filter((c) => c.id !== id);
+    save();
+    render();
   });
 
   // ---------- Ajustes: impuestos, seguridad ----------
@@ -1431,7 +2102,7 @@
     render();
     renderSecuritySettings();
     const initial = location.hash.replace('#', '');
-    showTab(initial && $('#tab-' + initial) ? initial : 'resumen');
+    showTab(initial && ($('#tab-' + initial) || initial === 'inversiones') ? initial : 'patrimonio');
     refreshFx();
     refreshPrices();
     setInterval(() => document.visibilityState === 'visible' && refreshPrices(), 5 * 60 * 1000);

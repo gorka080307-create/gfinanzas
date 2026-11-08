@@ -12,7 +12,7 @@
     body.locked { margin: 0; background: #0d0d0d; color: #f0efec; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
     body.locked .lock { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
   </style>
-  <link rel="stylesheet" href="css/styles.css?v=202611081253" />
+  <link rel="stylesheet" href="css/styles.css?v=202611081309" />
   <script>
     // Aplicar tema guardado antes de pintar para evitar parpadeo
     try { const t = localStorage.getItem('gfinanzas.theme'); if (t) document.documentElement.dataset.theme = t; } catch (e) {}
@@ -70,30 +70,132 @@
       <span>gfinanzas</span>
     </div>
     <nav class="tabs" role="tablist">
-      <button role="tab" data-tab="resumen" class="active">Resumen</button>
-      <button role="tab" data-tab="cartera">Cartera</button>
-      <button role="tab" data-tab="operaciones">Operaciones</button>
-      <button role="tab" data-tab="fiscal">Ventas</button>
-      <button role="tab" data-tab="datos">Datos</button>
+      <button role="tab" data-tab="patrimonio" class="active">Patrimonio</button>
+      <button role="tab" data-tab="gastos">Gastos e ingresos</button>
+      <button role="tab" data-tab="inversiones">Inversiones</button>
+      <button role="tab" data-tab="datos">Ajustes</button>
     </nav>
     <div class="live" aria-live="off">
       <div class="live-clock"><span id="clockTime">--:--:--</span><span id="clockDate" class="muted small"></span></div>
-      <div class="live-total" id="totalPill" title=""><span class="muted small">Resultado total</span><strong id="totalValue">—</strong></div>
+      <div class="live-total" id="worthPill" title="Dinero en cuentas + inversiones"><span class="muted small">Patrimonio</span><strong id="worthValue">—</strong></div>
+      <div class="live-total" id="totalPill" title=""><span class="muted small">Inversiones</span><strong id="totalValue">—</strong></div>
     </div>
     <div class="topbar-actions">
       <button class="icon-btn" id="lockBtnTop" title="Bloquear" aria-label="Bloquear"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg></button>
       <button class="icon-btn" id="themeBtn" title="Cambiar tema claro/oscuro" aria-label="Cambiar tema"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 0 0 18z" fill="currentColor"/></svg></button>
-      <button class="btn primary" id="newOpBtn">+ Nueva operación</button>
+      <div class="add-wrap">
+        <button class="btn primary" id="newOpBtn" aria-haspopup="menu" aria-expanded="false">+ Añadir</button>
+        <div class="add-menu hidden" id="addMenu" role="menu">
+          <button role="menuitem" data-add="gasto"><span>💸</span>Gasto</button>
+          <button role="menuitem" data-add="ingreso"><span>💰</span>Ingreso</button>
+          <button role="menuitem" data-add="transferencia"><span>🔁</span>Transferencia entre cuentas</button>
+          <hr />
+          <button role="menuitem" data-add="bolsa"><span>📈</span>Operación de bolsa</button>
+          <button role="menuitem" data-add="cuenta"><span>🏦</span>Nueva cuenta</button>
+        </div>
+      </div>
     </div>
   </header>
 
   <main>
+    <nav class="subtabs hidden" id="invSubnav" role="tablist" aria-label="Inversiones">
+      <button role="tab" data-tab="resumen">Resumen</button>
+      <button role="tab" data-tab="cartera">Cartera</button>
+      <button role="tab" data-tab="operaciones">Operaciones</button>
+      <button role="tab" data-tab="fiscal">Ventas</button>
+    </nav>
     <div id="warnings"></div>
+
+    <!-- PATRIMONIO -->
+    <section class="tab-panel active" id="tab-patrimonio">
+      <div class="kpis" id="worthKpis"></div>
+      <div class="card">
+        <div class="card-head row-head">
+          <div>
+            <h3>Tus cuentas</h3>
+            <span class="muted small">El saldo se actualiza solo con lo que apuntas. Si no cuadra con el banco, usa «Ajustar saldo».</span>
+          </div>
+          <button class="btn" data-add="cuenta">+ Cuenta</button>
+        </div>
+        <div class="acc-grid" id="accGrid"></div>
+      </div>
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-head">
+            <h3>Evolución del patrimonio</h3>
+            <span class="muted small">A final de cada mes · inversiones a precio de compra salvo el mes actual</span>
+          </div>
+          <div class="chart-box"><canvas id="chartWorth"></canvas></div>
+        </div>
+        <div class="card">
+          <div class="card-head">
+            <h3>Gastos de este mes por categoría</h3>
+            <span class="muted small" id="catChartNote"></span>
+          </div>
+          <div class="chart-box"><canvas id="chartCats"></canvas></div>
+        </div>
+      </div>
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-head">
+            <h3>Ingresos y gastos por mes</h3>
+            <span class="muted small">Últimos 12 meses</span>
+          </div>
+          <div class="chart-box"><canvas id="chartIO"></canvas></div>
+        </div>
+        <div class="card">
+          <div class="card-head row-head">
+            <div><h3>Últimos movimientos</h3></div>
+            <button class="btn sm" data-goto="gastos">Ver todos</button>
+          </div>
+          <div class="table-wrap"><table class="data" id="recentTable"></table></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- GASTOS E INGRESOS -->
+    <section class="tab-panel" id="tab-gastos">
+      <div class="month-nav">
+        <button class="icon-btn" id="monthPrev" aria-label="Mes anterior">‹</button>
+        <h2 id="monthLabel"></h2>
+        <button class="icon-btn" id="monthNext" aria-label="Mes siguiente">›</button>
+        <span class="spacer"></span>
+        <button class="btn" data-add="ingreso">💰 Ingreso</button>
+        <button class="btn primary" data-add="gasto">💸 Gasto</button>
+      </div>
+      <div class="kpis" id="monthKpis"></div>
+      <div class="card">
+        <div class="card-head row-head">
+          <div>
+            <h3>Gasto por categoría</h3>
+            <span class="muted small">Pon un límite mensual a las categorías que quieras controlar</span>
+          </div>
+          <button class="btn sm" id="budgetEditBtn">Editar límites</button>
+        </div>
+        <div id="catList" class="cat-list"></div>
+      </div>
+      <div class="card">
+        <div class="filters">
+          <input type="search" id="txSearch" placeholder="Buscar nota…" />
+          <select id="txTypeFilter">
+            <option value="">Todo</option>
+            <option value="gasto">Gastos</option>
+            <option value="ingreso">Ingresos</option>
+            <option value="transferencia">Transferencias</option>
+          </select>
+          <select id="txCatFilter"><option value="">Todas las categorías</option></select>
+          <select id="txAccFilter"><option value="">Todas las cuentas</option></select>
+          <span class="spacer"></span>
+          <span class="muted small" id="txCount"></span>
+        </div>
+        <div class="table-wrap"><table class="data" id="txTable"></table></div>
+      </div>
+    </section>
 
     <!-- RESUMEN -->
     <section class="tab-panel active" id="tab-resumen">
       <div id="emptyState" class="empty hidden">
-        <h2>Empieza registrando tu primera operación</h2>
+        <h2>Aún no tienes inversiones registradas</h2>
         <p>Apunta cada compra o venta con su precio y comisión. gfinanzas calcula tu precio medio, ganancias y rentabilidad automáticamente.</p>
         <div class="row-gap">
           <button class="btn primary" data-action="new-op">+ Nueva operación</button>
@@ -255,6 +357,17 @@
           <div id="symbolsBox"></div>
         </div>
         <div class="card">
+          <div class="card-head"><h3>Categorías propias</h3></div>
+          <p class="muted small">Además de las categorías de serie, puedes crear las tuyas.</p>
+          <form id="catForm" class="cat-form">
+            <select name="kind"><option value="gasto">Gasto</option><option value="ingreso">Ingreso</option></select>
+            <input name="icon" maxlength="4" placeholder="🙂" aria-label="Emoji" />
+            <input name="name" maxlength="30" placeholder="Nombre (p. ej. Gimnasio)" required aria-label="Nombre" />
+            <button class="btn" type="submit">Añadir</button>
+          </form>
+          <div id="customCats"></div>
+        </div>
+        <div class="card">
           <div class="card-head"><h3>Seguridad</h3></div>
           <form id="pwForm" class="pw-form" autocomplete="off">
             <label class="field">Contraseña actual<input type="password" name="current" autocomplete="current-password" required /></label>
@@ -328,11 +441,90 @@
     </form>
   </dialog>
 
+  <!-- DIÁLOGO DE GASTO / INGRESO / TRANSFERENCIA -->
+  <dialog id="txDialog">
+    <form id="txForm" method="dialog" class="dlg-form">
+      <div class="dlg-head">
+        <h2 id="txTitle">Nuevo gasto</h2>
+        <button type="button" class="icon-btn" data-close aria-label="Cerrar">✕</button>
+      </div>
+      <div class="segmented" role="radiogroup">
+        <label><input type="radio" name="type" value="gasto" checked /><span>Gasto</span></label>
+        <label><input type="radio" name="type" value="ingreso" /><span>Ingreso</span></label>
+        <label><input type="radio" name="type" value="transferencia" /><span>Transferencia</span></label>
+      </div>
+      <div class="amount-field">
+        <input type="number" name="amount" step="0.01" min="0" placeholder="0,00" required aria-label="Importe" />
+        <span id="txCcy">€</span>
+      </div>
+      <div class="chips" id="txChips" role="radiogroup" aria-label="Categoría"></div>
+      <div class="form-grid">
+        <label><span id="txAccLabel">Cuenta</span><select name="accountId" required></select></label>
+        <label class="tx-to hidden">A la cuenta<select name="toAccountId"></select></label>
+        <label class="tx-toamount hidden span-2">Importe que llega (moneda distinta)<input type="number" name="toAmount" step="0.01" min="0" /></label>
+        <label>Fecha<input type="date" name="date" required /></label>
+        <label class="span-2">Nota<input name="note" placeholder="Opcional (p. ej. cena con amigos)" maxlength="80" /></label>
+      </div>
+      <div class="dlg-foot">
+        <button type="button" class="btn danger hidden" id="txDelete">Borrar</button>
+        <span class="spacer"></span>
+        <button type="button" class="btn" id="txSaveMore">Guardar y añadir otro</button>
+        <button type="submit" class="btn primary">Guardar</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- DIÁLOGO DE CUENTA -->
+  <dialog id="accDialog">
+    <form id="accForm" method="dialog" class="dlg-form">
+      <div class="dlg-head">
+        <h2 id="accTitle">Nueva cuenta</h2>
+        <button type="button" class="icon-btn" data-close aria-label="Cerrar">✕</button>
+      </div>
+      <div class="form-grid">
+        <label class="span-2">Nombre<input name="name" required maxlength="40" placeholder="p. ej. BBVA, Efectivo, Revolut" /></label>
+        <label>Tipo<select name="type"></select></label>
+        <label>Moneda<select name="currency">
+          <option>EUR</option><option>USD</option><option>GBP</option><option>CHF</option>
+        </select></label>
+        <label class="acc-initial">Saldo actual<input type="number" name="initial" step="0.01" value="0" /></label>
+        <label class="acc-initial">A fecha de<input type="date" name="initialDate" /></label>
+      </div>
+      <p class="muted small acc-initial-note">Pon lo que tienes ahora mismo en esa cuenta. A partir de ahí, se actualiza con tus gastos e ingresos.</p>
+      <div class="dlg-foot">
+        <button type="button" class="btn danger hidden" id="accDelete">Eliminar cuenta</button>
+        <span class="spacer"></span>
+        <button type="button" class="btn" data-close>Cancelar</button>
+        <button type="submit" class="btn primary">Guardar</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- DIÁLOGO DE AJUSTE DE SALDO -->
+  <dialog id="adjDialog">
+    <form id="adjForm" method="dialog" class="dlg-form">
+      <div class="dlg-head">
+        <h2>Ajustar saldo</h2>
+        <button type="button" class="icon-btn" data-close aria-label="Cerrar">✕</button>
+      </div>
+      <p class="muted" id="adjInfo"></p>
+      <div class="form-grid">
+        <label class="span-2">Saldo real hoy<input type="number" name="real" step="0.01" required /></label>
+      </div>
+      <p class="muted small">Se apunta la diferencia como «Ajuste de saldo», que no cuenta como gasto ni como ingreso en tus estadísticas.</p>
+      <div class="dlg-foot">
+        <button type="button" class="btn" data-close>Cancelar</button>
+        <button type="submit" class="btn primary">Ajustar</button>
+      </div>
+    </form>
+  </dialog>
+
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.6/dist/chart.umd.min.js"></script>
-  <script src="js/calc.js?v=202611081253"></script>
-  <script src="js/vault.js?v=202611081253"></script>
-  <script src="js/app.js?v=202611081253"></script>
+  <script src="js/calc.js?v=202611081309"></script>
+  <script src="js/wealth.js?v=202611081309"></script>
+  <script src="js/vault.js?v=202611081309"></script>
+  <script src="js/app.js?v=202611081309"></script>
 </body>
 </html>
