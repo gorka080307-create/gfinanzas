@@ -431,3 +431,9 @@ body:not(.locked) .lock { display: none; }
 #worthKpis .kpi:first-child .value { font-size: 32px; }
 .live-total strong, .live-clock span { white-space: nowrap; }
 @media (max-width: 900px) { #worthKpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } #worthKpis .kpi:first-child { grid-column: span 2; } }
+/* Pantallas medianas: las pestañas pasan a una segunda fila */
+@media (max-width: 1180px) {
+  .topbar { flex-wrap: wrap; row-gap: 6px; }
+  .tabs { order: 3; width: 100%; }
+  .live { margin-left: auto; }
+}
