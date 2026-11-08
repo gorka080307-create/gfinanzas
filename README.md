@@ -10,6 +10,8 @@ Aplicación web personal para llevar el control de mis inversiones en bolsa.
 - **Calculadora de venta**: simula cuánto ganarías vendiendo ahora a un precio, sin guardar nada. Al apuntar una venta también ves el resultado antes de guardarla.
 - **Gráficos**: evolución del capital invertido, distribución de la cartera, ganancia latente por valor, resultados por año y ganancia realizada acumulada.
 - **Fiscalidad**: resumen por año (ganancias, pérdidas, dividendos, retenciones, base del ahorro e IRPF estimado), aviso de la regla de los dos meses y exportación a CSV de las ventas del año, lote a lote, para la declaración de la renta.
+- **Barra superior**: hora y fecha actuales y tu resultado total (latente + ventas + dividendos), siempre visible.
+- **Precios automáticos**: con una clave gratuita de [Finnhub](https://finnhub.io/register) (en *Datos → Ajustes*) los precios de tus posiciones abiertas se buscan solos cada 5 minutos. Puedes corregir cualquiera a mano.
 - **Multidivisa**: cada operación lleva su moneda (EUR, USD…). Los importes de cada valor se muestran en su moneda y los totales se convierten a la moneda principal con el tipo de cambio de *Datos → Ajustes*.
 - **Datos**: copia de seguridad en JSON, exportación e importación de operaciones en CSV y tema claro/oscuro.
 
@@ -38,7 +40,8 @@ En los dividendos, `precio` es el importe bruto cobrado y `comision` la retenci�
 ## Avisos
 
 - La estimación del IRPF es orientativa (escala del ahorro 19 %–30 %): no tiene en cuenta pérdidas de años anteriores ni otros rendimientos.
-- Los precios actuales se introducen a mano.
+- Google y Yahoo no permiten consultar cotizaciones desde una página web; por eso se usa Finnhub, que en su plan gratuito cubre sobre todo acciones de EE. UU. Para otras bolsas indica el símbolo o escribe el precio a mano.
+- El tipo de cambio se actualiza con el oficial del BCE (frankfurter.dev) salvo que lo fijes a mano.
 - Se usa un único tipo de cambio por moneda; para la renta, Hacienda pide el de la fecha de cada operación.
 - **No subas tus datos a este repositorio**: es público. Guarda tus copias JSON fuera de él.
 

@@ -25,6 +25,10 @@
       <button role="tab" data-tab="fiscal">Ventas y fiscalidad</button>
       <button role="tab" data-tab="datos">Datos</button>
     </nav>
+    <div class="live" aria-live="off">
+      <div class="live-clock"><span id="clockTime">--:--:--</span><span id="clockDate" class="muted small"></span></div>
+      <div class="live-total" id="totalPill" title=""><span class="muted small">Resultado total</span><strong id="totalValue">—</strong></div>
+    </div>
     <div class="topbar-actions">
       <button class="icon-btn" id="themeBtn" title="Cambiar tema claro/oscuro" aria-label="Cambiar tema"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 0 0 18z" fill="currentColor"/></svg></button>
       <button class="btn primary" id="newOpBtn">+ Nueva operación</button>
@@ -95,10 +99,14 @@
     <!-- CARTERA -->
     <section class="tab-panel" id="tab-cartera">
       <div class="card">
-        <div class="card-head">
-          <h3>Posiciones abiertas</h3>
-          <span class="muted small">Escribe el precio actual de cada acción para ver tu ganancia latente. Se guarda automáticamente.</span>
+        <div class="card-head row-head">
+          <div>
+            <h3>Posiciones abiertas</h3>
+            <span class="muted small">Los precios se buscan solos cada 5 minutos. Puedes corregir cualquiera escribiéndolo; tu precio se respeta hasta que pulses «Actualizar precios».</span>
+          </div>
+          <button class="btn" id="refreshPricesBtn">↻ Actualizar precios</button>
         </div>
+        <div id="priceStatus" class="price-status"></div>
         <div class="table-wrap">
           <table class="data" id="positionsTable"></table>
         </div>
@@ -190,8 +198,13 @@
             </select>
           </label>
           <h4 class="sub-h">Tipos de cambio</h4>
+          <label class="check"><input type="checkbox" id="fxAuto" /> Actualizar automáticamente con el tipo oficial del BCE</label>
           <div id="ratesBox"></div>
-          <p class="muted small">Se usa un único tipo por moneda para convertir los importes. Para la renta, Hacienda pide el tipo de cambio de la fecha de cada operación.</p>
+          <p class="muted small">Tú apuntas cada operación en su moneda (por ejemplo, en dólares) y la app solo convierte al sumar los totales. Para la renta, Hacienda pide el tipo de cambio de la fecha de cada operación.</p>
+          <h4 class="sub-h">Precios automáticos</h4>
+          <p class="muted small">Google y Yahoo no permiten consultar cotizaciones desde una página web, así que se usa <strong>Finnhub</strong> (gratis). Crea una cuenta en <a href="https://finnhub.io/register" target="_blank" rel="noopener">finnhub.io/register</a>, copia tu <em>API key</em> y pégala aquí. Se guarda solo en este navegador y no se incluye en las copias de seguridad.</p>
+          <label class="field wide">Clave de Finnhub (API key)<input type="password" id="quoteKey" placeholder="Pega aquí tu clave" autocomplete="off" /></label>
+          <div id="symbolsBox"></div>
           <div class="row-gap">
             <button class="btn" data-action="demo">Cargar datos de ejemplo</button>
             <button class="btn danger" id="wipeBtn">Borrar todos los datos</button>

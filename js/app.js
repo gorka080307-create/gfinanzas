@@ -111,6 +111,8 @@
     if (!empty) renderCharts();
     $('#currencySel').value = base();
     renderRates();
+    renderTopTotal();
+    renderQuoteSettings();
   }
 
   function renderWarnings() {
@@ -172,7 +174,7 @@
         <td class="num">${money(r.cost, { ccy: r.ccy })}${r.ccy !== base() ? `<span class="sub">${money(r.costB)}</span>` : ''}</td>
         <td class="num"><input class="price-input" type="number" step="any" min="0" data-price="${esc(r.ticker)}" value="${
           r.price ?? ''
-        }" placeholder="Precio" title="${r.priceDate ? 'Actualizado el ' + fmtDate(r.priceDate) : 'Sin precio'}" /></td>
+        }" placeholder="Precio" />${priceMeta(r.ticker)}</td>
         <td class="num">${money(r.value, { ccy: r.ccy })}</td>
         <td class="num ${cls(r.pnl)}">${money(r.pnl, { sign: true, ccy: r.ccy })}${
           r.ccy !== base() && r.pnlB != null ? `<span class="sub">${money(r.pnlB, { sign: true })}</span>` : ''
@@ -193,6 +195,155 @@
         <td class="num ${cls(val.unrealized)}">${val.costPriced ? money(val.unrealized, { sign: true }) : '—'}</td>
         <td class="num ${cls(val.unrealized)}">${val.costPriced ? pct(val.unrealizedPct) : '—'}</td><td></td>
       </tr></tfoot>`;
+  }
+
+  function priceMeta(t) {
+    const p = state.prices[t];
+    if (!p) return '<span class="price-meta">sin precio</span>';
+    const when = p.ts ? new Date(p.ts) : null;
+    const whenTxt = when
+      ? when.toDateString() === new Date().toDateString()
+        ? when.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
+        : when.toLocaleDateString('es-ES')
+      : fmtDate(p.date);
+    const src = p.source === 'auto' ? 'auto' : p.source === 'manual' ? 'manual' : 'de tu operación';
+    const chg = p.source === 'auto' && p.change != null ? ` · <span class="${cls(p.change)}">hoy ${pct(p.change)}</span>` : '';
+    return `<span class="price-meta">${src} · ${whenTxt}${chg}</span>`;
+  }
+
+  // ---------- Barra superior: reloj y resultado total ----------
+  function tickClock() {
+    const now = new Date();
+    $('#clockTime').textContent = now.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    $('#clockDate').textContent = now.toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+  }
+  function renderTopTotal() {
+    const el = $('#totalValue');
+    if (!state.ops.length) {
+      el.textContent = '—';
+      el.className = '';
+      return;
+    }
+    const total = val.unrealized + pf.totals.realized + pf.totals.dividends;
+    el.textContent = (total > 0 ? '▲ ' : total < 0 ? '▼ ' : '') + money(total, { sign: true });
+    el.className = cls(total);
+    $('#totalPill').title =
+      `Latente (posiciones abiertas): ${money(val.unrealized, { sign: true })}\n` +
+      `Realizada (ventas): ${money(pf.totals.realized, { sign: true })}\n` +
+      `Dividendos netos: ${money(pf.totals.dividends, { sign: true })}` +
+      (val.allPriced ? '' : '\n(Hay valores sin precio actual)');
+  }
+
+  // ---------- Precios automáticos (Finnhub) ----------
+  const quoteKey = () => (state.settings.quote && state.settings.quote.key) || '';
+  let refreshing = false;
+  function setPriceStatus(html) {
+    $('#priceStatus').innerHTML = html;
+  }
+  async function fetchQuote(symbol) {
+    const url = `https://finnhub.io/api/v1/quote?symbol=${encodeURIComponent(symbol)}&token=${encodeURIComponent(quoteKey())}`;
+    const r = await fetch(url);
+    if (r.status === 401 || r.status === 403) throw Object.assign(new Error('clave'), { fatal: true });
+    if (r.status === 429) throw Object.assign(new Error('límite'), { fatal: true, limit: true });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const q = await r.json();
+    if (!q || !(q.c > 0)) return null;
+    return { price: q.c, change: Number.isFinite(q.dp) ? q.dp / 100 : null, ts: q.t ? q.t * 1000 : Date.now() };
+  }
+  async function refreshPrices(force) {
+    if (refreshing || !pf || !pf.positions.length) return;
+    if (!quoteKey()) {
+      setPriceStatus(
+        'Para que los precios se busquen solos, añade tu clave gratuita de Finnhub en <a href="#datos" data-goto="datos">Datos → Ajustes</a>. Mientras tanto puedes escribirlos a mano.'
+      );
+      return;
+    }
+    refreshing = true;
+    setPriceStatus('Buscando precios…');
+    const tickers = [...new Set(pf.positions.map((p) => p.ticker))];
+    const symbols = state.settings.symbols || {};
+    const failed = [];
+    let ok = 0;
+    let skipped = 0;
+    try {
+      for (const t of tickers) {
+        const cur = state.prices[t];
+        if (!force && cur && cur.source === 'manual' && cur.date === today()) {
+          skipped++;
+          continue;
+        }
+        try {
+          const q = await fetchQuote(symbols[t] || t);
+          if (q) {
+            state.prices[t] = { price: q.price, date: today(), ts: Date.now(), source: 'auto', change: q.change };
+            ok++;
+          } else failed.push(t);
+        } catch (e) {
+          if (e.fatal) throw e;
+          failed.push(t);
+        }
+      }
+      save();
+      render();
+      const time = new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+      let msg = `Precios actualizados a las ${time}: ${ok} de ${tickers.length}.`;
+      if (skipped) msg += ` ${skipped} con tu precio manual de hoy (pulsa «Actualizar precios» para sustituirlo).`;
+      if (failed.length)
+        msg += ` <span class="neg">No encontrado: ${failed.map(esc).join(', ')}.</span> Si cotiza fuera de EE. UU., indica su símbolo en <a href="#datos" data-goto="datos">Datos → Ajustes</a> o escribe el precio a mano.`;
+      setPriceStatus(msg);
+    } catch (e) {
+      setPriceStatus(
+        e.limit
+          ? 'Finnhub ha limitado las consultas por un momento. Se reintentará en el próximo ciclo.'
+          : '<span class="neg">La clave de Finnhub no es válida.</span> Revísala en <a href="#datos" data-goto="datos">Datos → Ajustes</a>.'
+      );
+    } finally {
+      refreshing = false;
+    }
+  }
+
+  // ---------- Tipo de cambio automático (BCE vía frankfurter.dev) ----------
+  async function refreshFx() {
+    if (state.settings.fxAuto === false) return;
+    const need = [...new Set(state.ops.map((o) => o.currency || base()))].filter((c) => c !== base());
+    if (!need.length) return;
+    try {
+      const r = await fetch(`https://api.frankfurter.dev/v1/latest?base=${base()}&symbols=${need.join(',')}`);
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const data = await r.json();
+      let changed = false;
+      for (const c of need) {
+        const v = data.rates && data.rates[c];
+        if (v > 0 && state.settings.rates[c] !== v) {
+          state.settings.rates[c] = v;
+          changed = true;
+        }
+      }
+      state.settings.fxDate = data.date;
+      save();
+      if (changed) render();
+      else renderRates();
+    } catch (e) {
+      console.warn('No se pudo actualizar el tipo de cambio', e);
+    }
+  }
+
+  function renderQuoteSettings() {
+    const key = $('#quoteKey');
+    if (document.activeElement !== key) key.value = quoteKey();
+    $('#fxAuto').checked = state.settings.fxAuto !== false;
+    const box = $('#symbolsBox');
+    const tickers = [...new Set(pf.positions.map((p) => p.ticker))];
+    const symbols = state.settings.symbols || {};
+    box.innerHTML = tickers.length
+      ? `<p class="muted small" style="margin:12px 0 4px">Símbolo con el que se busca cada valor (déjalo vacío si es el mismo; para bolsas no estadounidenses usa el formato de Finnhub, p. ej. <code>SAP.DE</code>, <code>ITX.MC</code>):</p>` +
+        tickers
+          .map(
+            (t) => `<label class="sym-row"><span class="ticker">${esc(t)}</span>
+              <input data-symbol="${esc(t)}" value="${esc(symbols[t] || '')}" placeholder="${esc(t)}" /></label>`
+          )
+          .join('')
+      : '';
   }
 
   function renderSimTickers() {
@@ -790,7 +941,8 @@
     // Una compra/venta da un precio reciente de referencia si no hay otro más nuevo
     if (t !== 'dividendo') {
       const prev = state.prices[op.ticker];
-      if (!prev || !prev.date || prev.date <= op.date) state.prices[op.ticker] = { price: op.price, date: op.date };
+      if (!prev || !prev.date || (prev.date <= op.date && prev.source !== 'auto' && prev.source !== 'manual'))
+        state.prices[op.ticker] = { price: op.price, date: op.date, source: 'op' };
     }
     save();
     dlg.close();
@@ -837,7 +989,7 @@
     const t = e.target.dataset.price;
     if (!t) return;
     const v = C.num(e.target.value);
-    if (v > 0) state.prices[t] = { price: v, date: today() };
+    if (v > 0) state.prices[t] = { price: v, date: today(), ts: Date.now(), source: 'manual' };
     else delete state.prices[t];
     save();
     render();
@@ -889,6 +1041,9 @@
             <input type="number" step="any" min="0" class="price-input" data-rate="${c}" value="${rates[c] ?? ''}" placeholder="tipo" /> ${c}</label>`
         )
         .join('') +
+      (state.settings.fxAuto !== false && state.settings.fxDate
+        ? `<p class="muted small">Tipo oficial del BCE del ${fmtDate(state.settings.fxDate)}.</p>`
+        : '') +
       (used.some((c) => !(C.num(rates[c]) > 0))
         ? '<p class="warn-text small">⚠ Falta algún tipo de cambio: mientras tanto se usa 1:1.</p>'
         : '');
@@ -899,14 +1054,17 @@
     const v = C.num(e.target.value);
     if (v > 0) state.settings.rates[c] = v;
     else delete state.settings.rates[c];
+    state.settings.fxAuto = false; // si lo cambias a mano, se deja de actualizar solo
     save();
     render();
-    toast('Tipo de cambio actualizado');
+    toast('Tipo de cambio guardado (actualización automática desactivada)');
   });
 
   // ---------- Importar / exportar ----------
   $('#exportJson').addEventListener('click', () => {
-    download(`gfinanzas-copia-${today()}.json`, JSON.stringify(state, null, 2), 'application/json');
+    const copy = JSON.parse(JSON.stringify(state));
+    if (copy.settings.quote) delete copy.settings.quote.key;
+    download(`gfinanzas-copia-${today()}.json`, JSON.stringify(copy, null, 2), 'application/json');
   });
   $('#importJson').addEventListener('change', async (e) => {
     const file = e.target.files[0];
@@ -916,10 +1074,14 @@
       const data = JSON.parse(await file.text());
       if (!Array.isArray(data.ops)) throw new Error('Formato no válido');
       if (!confirm(`Esto sustituirá tus datos actuales por los de la copia (${data.ops.length} operaciones). ¿Continuar?`)) return;
+      const keep = state.settings.quote;
       state = { ...emptyState(), ...data, settings: { ...emptyState().settings, ...(data.settings || {}) } };
+      if (keep && keep.key && !(state.settings.quote && state.settings.quote.key)) state.settings.quote = keep;
       save();
       render();
       toast('Copia restaurada');
+      refreshFx();
+      refreshPrices();
     } catch (err) {
       alert('No se pudo leer el archivo: ' + err.message);
     }
@@ -1116,8 +1278,45 @@
     toast('Datos de ejemplo cargados');
   }
 
+  // ---------- Eventos de precios y ajustes ----------
+  $('#refreshPricesBtn').addEventListener('click', () => refreshPrices(true));
+  $('#quoteKey').addEventListener('change', (e) => {
+    state.settings.quote = { provider: 'finnhub', key: e.target.value.trim() };
+    save();
+    toast(state.settings.quote.key ? 'Clave guardada. Buscando precios…' : 'Clave eliminada');
+    refreshPrices(true);
+  });
+  $('#fxAuto').addEventListener('change', (e) => {
+    state.settings.fxAuto = e.target.checked;
+    save();
+    if (e.target.checked) refreshFx();
+  });
+  $('#symbolsBox').addEventListener('change', (e) => {
+    const t = e.target.dataset.symbol;
+    if (!t) return;
+    state.settings.symbols = state.settings.symbols || {};
+    const v = e.target.value.trim().toUpperCase();
+    if (v) state.settings.symbols[t] = v;
+    else delete state.settings.symbols[t];
+    save();
+    refreshPrices(true);
+  });
+  document.addEventListener('click', (e) => {
+    const g = e.target.closest('[data-goto]');
+    if (g) {
+      e.preventDefault();
+      showTab(g.dataset.goto);
+    }
+  });
+
   // ---------- Inicio ----------
+  tickClock();
+  setInterval(tickClock, 1000);
   render();
+  refreshFx();
+  refreshPrices();
+  setInterval(() => document.visibilityState === 'visible' && refreshPrices(), 5 * 60 * 1000);
+  setInterval(refreshFx, 60 * 60 * 1000);
   const initial = location.hash.replace('#', '');
   if (initial && $('#tab-' + initial)) showTab(initial);
 })();
