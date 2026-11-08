@@ -1398,7 +1398,7 @@
   });
 
   function passwordProblem(p, p2) {
-    if (p.length < 6) return 'La contraseña debe tener al menos 6 caracteres.';
+    if (p.length < 4) return 'La contraseña debe tener al menos 4 caracteres.';
     if (p !== p2) return 'Las contraseñas no coinciden.';
     return '';
   }
