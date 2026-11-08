@@ -13,7 +13,7 @@
   let editingId = null;
 
   function emptyState() {
-    return { version: 1, ops: [], prices: {}, settings: { currency: 'EUR' }, seq: 0 };
+    return { version: 1, ops: [], prices: {}, settings: { currency: 'EUR', rates: {} }, seq: 0 };
   }
   function load() {
     try {
@@ -35,6 +35,9 @@
   }
 
   // ---------- Utilidades ----------
+  const CURRENCIES = ['EUR', 'USD', 'GBP', 'CHF', 'CAD', 'JPY', 'SEK', 'DKK', 'NOK', 'HKD', 'AUD'];
+  const base = () => state.settings.currency || 'EUR';
+  const fxOpts = () => ({ base: base(), rates: state.settings.rates || {} });
   const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
   const today = () => {
     const d = new Date();
@@ -43,11 +46,14 @@
   const esc = (s) =>
     String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
+  function moneyFmt(v, opts) {
+    return money(v, opts);
+  }
   function money(v, opts = {}) {
     if (v == null || !Number.isFinite(v)) return '—';
     const f = new Intl.NumberFormat('es-ES', {
       style: 'currency',
-      currency: state.settings.currency || 'EUR',
+      currency: opts.ccy || base(),
       useGrouping: 'always',
       minimumFractionDigits: opts.decimals ?? 2,
       maximumFractionDigits: opts.decimals ?? (Math.abs(v) < 10 && opts.precise ? 4 : 2),
@@ -90,8 +96,8 @@
   // ---------- Render principal ----------
   let pf, val;
   function render() {
-    pf = C.computePortfolio(state.ops);
-    val = C.valuePositions(pf.positions, state.prices);
+    pf = C.computePortfolio(state.ops, fxOpts());
+    val = C.valuePositions(pf.positions, state.prices, fxOpts());
     const empty = state.ops.length === 0;
     $('#emptyState').classList.toggle('hidden', !empty);
     $('#dashboard').classList.toggle('hidden', empty);
@@ -103,7 +109,8 @@
     renderFiscal();
     renderDatalist();
     if (!empty) renderCharts();
-    $('#currencySel').value = state.settings.currency;
+    $('#currencySel').value = base();
+    renderRates();
   }
 
   function renderWarnings() {
@@ -123,14 +130,14 @@
   function renderKpis() {
     const t = pf.totals;
     const unpriced = val.rows.filter((r) => r.price == null);
-    const portfolioValue = val.value + unpriced.reduce((s, r) => s + r.cost, 0);
+    const portfolioValue = val.value + unpriced.reduce((s, r) => s + r.costB, 0);
     const totalResult = val.unrealized + t.realized + t.dividends;
     const heroSub =
       val.rows.length === 0
         ? 'No tienes posiciones abiertas'
         : unpriced.length
         ? `${unpriced.length} valor${unpriced.length > 1 ? 'es' : ''} sin precio actual (se usa su coste). Añádelo en «Cartera».`
-        : `${val.rows.length} posiciones abiertas`;
+        : `${val.rows.length} posici${val.rows.length === 1 ? 'ón abierta' : 'ones abiertas'}`;
     $('#kpis').innerHTML = [
       kpi('Valor de la cartera', money(portfolioValue), heroSub, 'hero'),
       kpi('Capital invertido', money(t.invested), 'Coste de lo que tienes ahora (con comisiones)'),
@@ -161,13 +168,15 @@
         (r) => `<tr>
         <td><span class="ticker">${esc(r.ticker)}</span><span class="sub">${esc(r.name) || 'desde ' + fmtDate(r.firstDate)}</span></td>
         <td class="num">${numFmt(r.qty)}</td>
-        <td class="num">${money(r.avg, { precise: true })}</td>
-        <td class="num">${money(r.cost)}</td>
+        <td class="num">${money(r.avg, { precise: true, ccy: r.ccy })}</td>
+        <td class="num">${money(r.cost, { ccy: r.ccy })}${r.ccy !== base() ? `<span class="sub">${money(r.costB)}</span>` : ''}</td>
         <td class="num"><input class="price-input" type="number" step="any" min="0" data-price="${esc(r.ticker)}" value="${
           r.price ?? ''
         }" placeholder="Precio" title="${r.priceDate ? 'Actualizado el ' + fmtDate(r.priceDate) : 'Sin precio'}" /></td>
-        <td class="num">${money(r.value)}</td>
-        <td class="num ${cls(r.pnl)}">${money(r.pnl, { sign: true })}</td>
+        <td class="num">${money(r.value, { ccy: r.ccy })}</td>
+        <td class="num ${cls(r.pnl)}">${money(r.pnl, { sign: true, ccy: r.ccy })}${
+          r.ccy !== base() && r.pnlB != null ? `<span class="sub">${money(r.pnlB, { sign: true })}</span>` : ''
+        }</td>
         <td class="num ${cls(r.pnl)}">${pct(r.pnlPct)}</td>
         <td class="num"><span class="weight-bar" style="width:${Math.max(2, (r.weight / maxW) * 50)}px"></span>${pct(r.weight, false)}</td>
       </tr>`
@@ -179,7 +188,7 @@
       </tr></thead>
       <tbody>${rows}</tbody>
       <tfoot><tr>
-        <td>Total</td><td></td><td></td><td class="num">${money(pf.totals.invested)}</td><td></td>
+        <td>Total (${base()})</td><td></td><td></td><td class="num">${money(pf.totals.invested)}</td><td></td>
         <td class="num">${val.value ? money(val.value) : '—'}</td>
         <td class="num ${cls(val.unrealized)}">${val.costPriced ? money(val.unrealized, { sign: true }) : '—'}</td>
         <td class="num ${cls(val.unrealized)}">${val.costPriced ? pct(val.unrealizedPct) : '—'}</td><td></td>
@@ -191,14 +200,14 @@
     const cur = sel.value;
     sel.innerHTML =
       '<option value="">— Elige —</option>' +
-      pf.positions.map((p) => `<option value="${esc(p.ticker)}">${esc(p.ticker)} (${numFmt(p.qty)} acc.)</option>`).join('');
-    if (pf.positions.some((p) => p.ticker === cur)) sel.value = cur;
+      pf.positions.map((p) => `<option value="${esc(p.ticker)}|${p.ccy}">${esc(p.ticker)} (${numFmt(p.qty)} acc.)</option>`).join('');
+    if (pf.positions.some((p) => p.ticker + '|' + p.ccy === cur)) sel.value = cur;
     runSim();
   }
 
   function runSim() {
     const f = $('#simForm');
-    const t = f.ticker.value;
+    const [t, ccy] = f.ticker.value.split('|');
     const out = $('#simResult');
     if (!t) {
       out.innerHTML = 'Elige un valor y escribe cantidad y precio.';
@@ -207,16 +216,17 @@
     }
     const q = C.num(f.quantity.value);
     const p = C.num(f.price.value);
-    const pos = pf.positions.find((x) => x.ticker === t);
+    const pos = pf.positions.find((x) => x.ticker === t && x.ccy === ccy);
+    if (!pos) return;
     if (!q || !p) {
       out.className = 'sim-result muted';
       out.innerHTML = `Tienes <strong>${numFmt(pos.qty)}</strong> acciones de ${esc(t)} a un precio medio de <strong>${money(
         pos.avg,
-        { precise: true }
+        { precise: true, ccy }
       )}</strong>. Para no perder dinero tendrías que vender por encima de ese precio (más la comisión de venta).`;
       return;
     }
-    const sim = C.simulateSale(state.ops, { ticker: t, quantity: q, price: p, commission: f.commission.value, date: today() });
+    const sim = C.simulateSale(state.ops, { ticker: t, currency: ccy, quantity: q, price: p, commission: f.commission.value, date: today() }, fxOpts());
     sim.requested = q;
     out.className = 'sim-result';
     out.innerHTML = saleSummaryHtml(sim);
@@ -226,16 +236,18 @@
     const r = sim.result;
     if (!r) return '';
     const over = (sim.requested ?? 0) > sim.available + 1e-9;
-    const tax = r.gain > 0 ? C.estimateSavingsTax(r.gain) : 0;
+    const tax = r.gainB > 0 ? C.estimateSavingsTax(r.gainB) : 0;
+    const m = (v, o = {}) => money(v, { ...o, ccy: r.ccy });
+    const inBase = r.ccy !== base() ? ` <span class="muted small">(${money(r.gainB, { sign: true })})</span>` : '';
     return `
       ${over ? `<p class="warn">Solo tienes ${numFmt(sim.available)} acciones en esa fecha.</p>` : ''}
       <div class="summary-grid">
-        <div><span>Ganancia / pérdida</span><strong class="big ${cls(r.gain)}">${money(r.gain, { sign: true })}</strong></div>
+        <div><span>Ganancia / pérdida</span><strong class="big ${cls(r.gain)}">${m(r.gain, { sign: true })}</strong>${inBase}</div>
         <div><span>Rentabilidad</span><strong class="${cls(r.gain)}">${pct(r.pct)}</strong></div>
-        <div><span>Ingreso neto (tras comisión)</span><strong>${money(r.proceeds)}</strong></div>
-        <div><span>Coste de compra (FIFO)</span><strong>${money(r.cost)}</strong></div>
+        <div><span>Ingreso neto (tras comisión)</span><strong>${m(r.proceeds)}</strong></div>
+        <div><span>Coste de compra (FIFO)</span><strong>${m(r.cost)}</strong></div>
         <div><span>Acciones disponibles</span><strong>${numFmt(sim.available)}</strong></div>
-        ${r.gain > 0 ? `<div><span>IRPF aprox. (si fuera tu única ganancia)</span><strong>${money(tax)}</strong></div>` : ''}
+        ${r.gainB > 0 ? `<div><span>IRPF aprox. (si fuera tu única ganancia)</span><strong>${money(tax)}</strong></div>` : ''}
       </div>`;
   }
 
@@ -269,6 +281,8 @@
       .map((o) => {
         const r = pf.perOp[o.id] || {};
         const isDiv = o.type === 'dividendo';
+        const oc = o.currency || base();
+        const money = (v, opts = {}) => moneyFmt(v, { ...opts, ccy: oc });
         let total = '—';
         let result = '';
         if (o.type === 'compra') total = money(r.total);
@@ -319,10 +333,10 @@
     };
 
     // Base del ahorro con compensación del 25 % entre ganancias patrimoniales y dividendos
-    let base;
-    if (s.net >= 0) base = s.net + s.divGross;
-    else base = s.divGross - Math.min(-s.net, 0.25 * s.divGross);
-    const tax = C.estimateSavingsTax(base);
+    let savingsBase;
+    if (s.net >= 0) savingsBase = s.net + s.divGross;
+    else savingsBase = s.divGross - Math.min(-s.net, 0.25 * s.divGross);
+    const tax = C.estimateSavingsTax(savingsBase);
     const toPay = tax - s.divWithholding;
 
     $('#fiscalKpis').innerHTML = [
@@ -330,7 +344,7 @@
       kpi('Ganancias', money(s.gains), 'Ventas con beneficio', '', 'pos'),
       kpi('Pérdidas', money(s.losses), 'Ventas con pérdida', '', s.losses < 0 ? 'neg' : ''),
       kpi('Dividendos brutos', money(s.divGross), `Retenido: ${money(s.divWithholding)}`),
-      kpi('Base del ahorro (aprox.)', money(Math.max(0, base)), 'Ventas + dividendos'),
+      kpi('Base del ahorro (aprox.)', money(Math.max(0, savingsBase)), 'Ventas + dividendos'),
       kpi('IRPF estimado', money(tax), toPay >= 0 ? `≈ ${money(toPay)} a pagar tras retenciones` : `≈ ${money(-toPay)} a devolver`),
     ].join('');
 
@@ -344,9 +358,11 @@
           <td><span class="ticker">${esc(r.ticker)}</span>${r.washSale ? ' <span title="Posible regla de los dos meses">⚠</span>' : ''}</td>
           <td class="num">${numFmt(r.qty)}</td>
           <td>${r.lots.length > 1 ? `${r.lots.length} lotes<span class="sub">desde ${fmtDate(r.lots[0].date)}</span>` : fmtDate(r.lots[0]?.date)}</td>
-          <td class="num">${money(r.cost)}</td>
-          <td class="num">${money(r.proceeds)}</td>
-          <td class="num ${cls(r.gain)}">${money(r.gain, { sign: true })}</td>
+          <td class="num">${money(r.costB)}${r.ccy !== base() ? `<span class="sub">${money(r.cost, { ccy: r.ccy })}</span>` : ''}</td>
+          <td class="num">${money(r.proceedsB)}${r.ccy !== base() ? `<span class="sub">${money(r.proceeds, { ccy: r.ccy })}</span>` : ''}</td>
+          <td class="num ${cls(r.gainB)}">${money(r.gainB, { sign: true })}${
+            r.ccy !== base() ? `<span class="sub">${money(r.gain, { sign: true, ccy: r.ccy })}</span>` : ''
+          }</td>
           <td class="num ${cls(r.gain)}">${pct(r.pct)}</td>
           <td class="num">${r.days}</td>
         </tr>`
@@ -362,8 +378,8 @@
       ? `<thead><tr><th>Fecha</th><th>Valor</th><th class="num">Bruto</th><th class="num">Retención</th><th class="num">Neto</th></tr></thead>
         <tbody>${divs
           .map(
-            (d) => `<tr><td>${fmtDate(d.date)}</td><td class="ticker">${esc(d.ticker)}</td><td class="num">${money(d.gross)}</td>
-            <td class="num">${money(d.withholding)}</td><td class="num">${money(d.net)}</td></tr>`
+            (d) => `<tr><td>${fmtDate(d.date)}</td><td class="ticker">${esc(d.ticker)}</td><td class="num">${money(d.grossB)}</td>
+            <td class="num">${money(d.withholdingB)}</td><td class="num">${money(d.netB)}</td></tr>`
           )
           .join('')}</tbody>
         <tfoot><tr><td>Total</td><td></td><td class="num">${money(s.divGross)}</td><td class="num">${money(
@@ -478,10 +494,10 @@
     // 2. Distribución (barras horizontales, mejor que un donut para comparar pesos)
     const cvDist = $('#chartDist');
     const distRows = val.rows.slice().sort((a, b) => b.weight - a.weight);
-    let dist = distRows.slice(0, 10).map((r) => ({ label: r.ticker, w: r.weight, v: r.value ?? r.cost }));
+    let dist = distRows.slice(0, 10).map((r) => ({ label: r.ticker, w: r.weight, v: r.valueB ?? r.costB }));
     if (distRows.length > 10) {
       const rest = distRows.slice(10);
-      dist.push({ label: 'Otros', w: rest.reduce((s, r) => s + r.weight, 0), v: rest.reduce((s, r) => s + (r.value ?? r.cost), 0) });
+      dist.push({ label: 'Otros', w: rest.reduce((s, r) => s + r.weight, 0), v: rest.reduce((s, r) => s + (r.valueB ?? r.costB), 0) });
     }
     $('#distNote').textContent = val.allPriced ? 'Peso de cada valor a precio actual' : 'Peso de cada valor (a coste si no hay precio actual)';
     if (dist.length) {
@@ -508,17 +524,17 @@
 
     // 3. G/P latente por valor
     const cvPnl = $('#chartPnl');
-    const pnlRows = val.rows.filter((r) => r.pnl != null).sort((a, b) => b.pnl - a.pnl);
+    const pnlRows = val.rows.filter((r) => r.pnlB != null).sort((a, b) => b.pnlB - a.pnlB);
     if (pnlRows.length) {
       chartMsg(cvPnl, null);
       charts.pnl = new Chart(cvPnl, {
         type: 'bar',
         data: {
-          labels: pnlRows.map((r) => (r.pnl >= 0 ? '▲ ' : '▼ ') + r.ticker),
+          labels: pnlRows.map((r) => (r.pnlB >= 0 ? '▲ ' : '▼ ') + r.ticker),
           datasets: [
             {
-              data: pnlRows.map((r) => r.pnl),
-              backgroundColor: pnlRows.map((r) => (r.pnl >= 0 ? good : bad)),
+              data: pnlRows.map((r) => r.pnlB),
+              backgroundColor: pnlRows.map((r) => (r.pnlB >= 0 ? good : bad)),
               borderRadius: 4,
               borderSkipped: 'start',
               maxBarThickness: 22,
@@ -531,7 +547,7 @@
             legend: { display: false },
             tooltip: {
               callbacks: {
-                label: (it) => ` ${money(pnlRows[it.dataIndex].pnl, { sign: true })} (${pct(pnlRows[it.dataIndex].pnlPct)})`,
+                label: (it) => ` ${money(pnlRows[it.dataIndex].pnlB, { sign: true })} (${pct(pnlRows[it.dataIndex].pnlPct)})`,
               },
             },
           },
@@ -647,6 +663,7 @@
     form.price.value = d.price ?? '';
     form.commission.value = d.commission ?? 0;
     form.notes.value = d.notes || '';
+    form.currency.value = d.currency || base();
     syncType();
     dlg.showModal();
     setTimeout(() => (op ? form.price : form.ticker).focus(), 30);
@@ -669,13 +686,15 @@
   function updatePreview() {
     const t = currentType();
     const ticker = C.normTicker(form.ticker.value);
+    const ccy = form.currency.value || base();
+    const money = (v, o = {}) => moneyFmt(v, { ...o, ccy });
     const q = C.num(form.quantity.value);
     const p = C.num(form.price.value);
     const c = C.num(form.commission.value);
     const box = $('#opPreview');
     const others = state.ops.filter((o) => o.id !== editingId);
-    const pfo = C.computePortfolio(others.filter((o) => o.date <= (form.date.value || today())));
-    const pos = pfo.positions.find((x) => x.ticker === ticker);
+    const pfo = C.computePortfolio(others.filter((o) => o.date <= (form.date.value || today())), fxOpts());
+    const pos = pfo.positions.find((x) => x.ticker === ticker && x.ccy === ccy);
     const posLine = pos
       ? `<p class="muted small" style="margin:0 0 8px">Tienes ${numFmt(pos.qty)} acciones de ${esc(ticker)} · precio medio ${money(pos.avg, { precise: true })}${
           t === 'venta' ? ` · <a href="#" id="sellAll">vender todas</a>` : ''
@@ -700,7 +719,7 @@
       if (!ticker) return void (box.innerHTML = '');
       if (!pos) return void (box.innerHTML = `<p class="warn">No tienes acciones de ${esc(ticker)} en esa fecha.</p>`);
       if (!q || !p) return void (box.innerHTML = posLine);
-      const sim = C.simulateSale(state.ops, { ticker, quantity: q, price: p, commission: c, date: form.date.value, excludeId: editingId });
+      const sim = C.simulateSale(state.ops, { ticker, currency: ccy, quantity: q, price: p, commission: c, date: form.date.value, excludeId: editingId }, fxOpts());
       sim.requested = q;
       box.innerHTML = posLine + saleSummaryHtml(sim);
     } else {
@@ -715,13 +734,20 @@
 
   form.addEventListener('input', (e) => {
     if (e.target.name === 'type') syncType();
-    else updatePreview();
+    else {
+      // Al escribir un valor conocido, proponer su moneda
+      if (e.target.name === 'ticker' && !editingId) {
+        const known = pf && pf.currencyOf[C.normTicker(form.ticker.value)];
+        if (known) form.currency.value = known;
+      }
+      updatePreview();
+    }
   });
   $('#opPreview').addEventListener('click', (e) => {
     if (e.target.id === 'sellAll') {
       e.preventDefault();
-      const pfo = C.computePortfolio(state.ops.filter((o) => o.id !== editingId && o.date <= form.date.value));
-      const pos = pfo.positions.find((x) => x.ticker === C.normTicker(form.ticker.value));
+      const pfo = C.computePortfolio(state.ops.filter((o) => o.id !== editingId && o.date <= form.date.value), fxOpts());
+      const pos = pfo.positions.find((x) => x.ticker === C.normTicker(form.ticker.value) && x.ccy === form.currency.value);
       if (pos) form.quantity.value = +pos.qty.toFixed(6);
       updatePreview();
     }
@@ -736,6 +762,7 @@
       type: t,
       date: form.date.value,
       ticker: C.normTicker(form.ticker.value),
+      currency: form.currency.value || base(),
       name: form.name.value.trim(),
       quantity: t === 'dividendo' ? 0 : C.num(form.quantity.value),
       price: C.num(form.price.value),
@@ -746,7 +773,7 @@
     if (t !== 'dividendo' && op.quantity <= 0) return toast('El número de acciones debe ser mayor que 0.');
     if (op.price <= 0) return toast(t === 'dividendo' ? 'Indica el importe cobrado.' : 'Indica el precio por acción.');
     if (t === 'venta') {
-      const sim = C.simulateSale(state.ops, { ticker: op.ticker, quantity: op.quantity, price: op.price, commission: op.commission, date: op.date, excludeId: editingId });
+      const sim = C.simulateSale(state.ops, { ticker: op.ticker, currency: op.currency, quantity: op.quantity, price: op.price, commission: op.commission, date: op.date, excludeId: editingId }, fxOpts());
       if (sim.available + 1e-9 < op.quantity && !confirm(`Solo tienes ${numFmt(sim.available)} acciones de ${op.ticker} en esa fecha. ¿Guardar igualmente?`)) return;
     }
     if (editingId) {
@@ -822,7 +849,7 @@
   $('#simForm').addEventListener('input', runSim);
   $('#simTicker').addEventListener('change', () => {
     const f = $('#simForm');
-    const pos = pf.positions.find((p) => p.ticker === f.ticker.value);
+    const pos = pf.positions.find((p) => p.ticker + '|' + p.ccy === f.ticker.value);
     if (pos) {
       f.quantity.value = +pos.qty.toFixed(6);
       const pr = state.prices[pos.ticker];
@@ -845,6 +872,36 @@
     state.settings.currency = e.target.value;
     save();
     render();
+  });
+
+  function renderRates() {
+    const used = [...new Set(state.ops.map((o) => o.currency || base()))].filter((c) => c !== base());
+    const rates = (state.settings.rates = state.settings.rates || {});
+    const box = $('#ratesBox');
+    if (!used.length) {
+      box.innerHTML = '<p class="muted small">Todas tus operaciones están en la moneda principal.</p>';
+      return;
+    }
+    box.innerHTML =
+      used
+        .map(
+          (c) => `<label class="rate-row">1 ${base()} =
+            <input type="number" step="any" min="0" class="price-input" data-rate="${c}" value="${rates[c] ?? ''}" placeholder="tipo" /> ${c}</label>`
+        )
+        .join('') +
+      (used.some((c) => !(C.num(rates[c]) > 0))
+        ? '<p class="warn-text small">⚠ Falta algún tipo de cambio: mientras tanto se usa 1:1.</p>'
+        : '');
+  }
+  $('#ratesBox').addEventListener('change', (e) => {
+    const c = e.target.dataset.rate;
+    if (!c) return;
+    const v = C.num(e.target.value);
+    if (v > 0) state.settings.rates[c] = v;
+    else delete state.settings.rates[c];
+    save();
+    render();
+    toast('Tipo de cambio actualizado');
   });
 
   // ---------- Importar / exportar ----------
@@ -874,25 +931,26 @@
     return /[;"\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
   };
   $('#exportCsv').addEventListener('click', () => {
-    const head = 'fecha;tipo;valor;nombre;cantidad;precio;comision;notas';
+    const head = 'fecha;tipo;valor;nombre;cantidad;precio;comision;moneda;notas';
     const lines = C.sortOps(state.ops).map((o) =>
-      [o.date, o.type, o.ticker, o.name, csvNum(o.quantity), csvNum(o.price), csvNum(o.commission), o.notes].map(csvCell).join(';')
+      [o.date, o.type, o.ticker, o.name, csvNum(o.quantity), csvNum(o.price), csvNum(o.commission), o.currency || base(), o.notes].map(csvCell).join(';')
     );
     download(`gfinanzas-operaciones-${today()}.csv`, '﻿' + [head, ...lines].join('\n'), 'text/csv;charset=utf-8');
   });
 
   $('#exportYearCsv').addEventListener('click', () => {
     const y = $('#fiscalYear').value;
-    const head = 'fecha_transmision;valor;cantidad;fecha_adquisicion;valor_adquisicion;valor_transmision;ganancia_perdida;regla_2_meses';
+    const head = `fecha_transmision;valor;cantidad;fecha_adquisicion;valor_adquisicion_${base()};valor_transmision_${base()};ganancia_perdida_${base()};moneda_original;regla_2_meses`;
+    const fx = C.makeFx(fxOpts());
     const lines = [];
     for (const r of pf.realized.filter((r) => r.date.startsWith(y))) {
       // Una línea por lote, repartiendo el ingreso de la venta proporcionalmente
       for (const l of r.lots) {
         const share = r.qty > 0 ? l.qty / r.qty : 0;
-        const acq = l.qty * l.unit;
-        const trans = r.proceeds * share;
+        const acq = fx.toBase(l.qty * l.unit, r.ccy);
+        const trans = fx.toBase(r.proceeds * share, r.ccy);
         lines.push(
-          [r.date, r.ticker, csvNum(l.qty), l.date, csvNum(acq.toFixed(2)), csvNum(trans.toFixed(2)), csvNum((trans - acq).toFixed(2)), r.washSale ? 'posible' : '']
+          [r.date, r.ticker, csvNum(l.qty), l.date, csvNum(acq.toFixed(2)), csvNum(trans.toFixed(2)), csvNum((trans - acq).toFixed(2)), r.ccy, r.washSale ? 'posible' : '']
             .map(csvCell)
             .join(';')
         );
@@ -956,6 +1014,7 @@
       price: idx(['precio', 'price', 'importe']),
       commission: idx(['comision', 'commission', 'comisiones', 'retencion']),
       notes: idx(['notas', 'notes', 'nota']),
+      currency: idx(['moneda', 'divisa', 'currency']),
     };
     if (col.date < 0 || col.type < 0 || col.ticker < 0 || col.price < 0) throw new Error('Faltan columnas: se necesitan fecha, tipo, valor y precio.');
     const parseNum = (s) => {
@@ -986,6 +1045,7 @@
         type,
         date,
         ticker,
+        currency: col.currency >= 0 && /^[A-Za-z]{3}$/.test(r[col.currency] || '') ? r[col.currency].toUpperCase() : base(),
         name: col.name >= 0 ? r[col.name] : '',
         quantity: type === 'dividendo' ? 0 : Math.abs(parseNum(r[col.quantity])),
         price: Math.abs(parseNum(r[col.price])),
@@ -1033,6 +1093,7 @@
     ];
     state = { ...emptyState(), settings: state.settings };
     ops.forEach((o) => {
+      o.currency = ['AAPL', 'MSFT', 'NKE'].includes(o.ticker) ? 'USD' : 'EUR';
       o.id = uid();
       o.seq = ++state.seq;
       state.ops.push(o);
@@ -1047,6 +1108,8 @@
       MSFT: { price: 470.0, date: d },
     };
     state.settings.lastCommission = 5;
+    state.settings.currency = 'EUR';
+    state.settings.rates = { ...(state.settings.rates || {}), USD: state.settings.rates?.USD || 1.16 };
     save();
     render();
     showTab('resumen');

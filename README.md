@@ -10,7 +10,8 @@ Aplicación web personal para llevar el control de mis inversiones en bolsa.
 - **Calculadora de venta**: simula cuánto ganarías vendiendo ahora a un precio, sin guardar nada. Al apuntar una venta también ves el resultado antes de guardarla.
 - **Gráficos**: evolución del capital invertido, distribución de la cartera, ganancia latente por valor, resultados por año y ganancia realizada acumulada.
 - **Fiscalidad**: resumen por año (ganancias, pérdidas, dividendos, retenciones, base del ahorro e IRPF estimado), aviso de la regla de los dos meses y exportación a CSV de las ventas del año, lote a lote, para la declaración de la renta.
-- **Datos**: copia de seguridad en JSON, exportación e importación de operaciones en CSV, tema claro/oscuro y elección de moneda.
+- **Multidivisa**: cada operación lleva su moneda (EUR, USD…). Los importes de cada valor se muestran en su moneda y los totales se convierten a la moneda principal con el tipo de cambio de *Datos → Ajustes*.
+- **Datos**: copia de seguridad en JSON, exportación e importación de operaciones en CSV y tema claro/oscuro.
 
 ## Cómo usarla
 
@@ -26,10 +27,10 @@ Para probarla rápido: *Datos → Cargar datos de ejemplo*.
 ## Formato CSV
 
 ```
-fecha;tipo;valor;nombre;cantidad;precio;comision;notas
-2024-01-15;compra;SAN;Banco Santander;300;3,75;5;
-2024-07-22;venta;SAN;Banco Santander;100;4,10;5;
-2024-11-04;dividendo;SAN;;;15,40;2,93;
+fecha;tipo;valor;nombre;cantidad;precio;comision;moneda;notas
+2024-01-15;compra;SAN;Banco Santander;300;3,75;5;EUR;
+2024-07-22;venta;SAN;Banco Santander;100;4,10;5;EUR;
+2024-11-04;dividendo;SAN;;;15,40;2,93;EUR;
 ```
 
 En los dividendos, `precio` es el importe bruto cobrado y `comision` la retención.
@@ -38,6 +39,8 @@ En los dividendos, `precio` es el importe bruto cobrado y `comision` la retenci�
 
 - La estimación del IRPF es orientativa (escala del ahorro 19 %–30 %): no tiene en cuenta pérdidas de años anteriores ni otros rendimientos.
 - Los precios actuales se introducen a mano.
+- Se usa un único tipo de cambio por moneda; para la renta, Hacienda pide el de la fecha de cada operación.
+- **No subas tus datos a este repositorio**: es público. Guarda tus copias JSON fuera de él.
 
 ## Estructura
 

@@ -226,7 +226,7 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.4); }
 .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .form-grid label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--text-secondary); }
 .form-grid .span-2 { grid-column: span 2; }
-.form-grid input {
+.form-grid input, .form-grid select {
   padding: 9px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--page);
   color: var(--text-primary); font: inherit;
 }
@@ -258,3 +258,7 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.4); }
   .form-grid .span-2 { grid-column: span 1; }
   #newOpBtn { padding: 8px 10px; }
 }
+
+.sub-h { margin: 18px 0 8px; font-size: 14px; font-weight: 600; }
+.rate-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-variant-numeric: tabular-nums; }
+.warn-text { color: var(--bad-text); }

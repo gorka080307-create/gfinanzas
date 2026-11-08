@@ -177,11 +177,11 @@
             <button class="btn" id="exportCsv">Exportar operaciones (CSV)</button>
             <label class="btn">Importar operaciones (CSV)…<input type="file" id="importCsv" accept=".csv,text/csv" hidden /></label>
           </div>
-          <p class="muted small">CSV: columnas <code>fecha;tipo;valor;nombre;cantidad;precio;comision;notas</code> (tipo = compra, venta o dividendo; en dividendos, precio = importe bruto y comisión = retención).</p>
+          <p class="muted small">CSV: columnas <code>fecha;tipo;valor;nombre;cantidad;precio;comision;moneda;notas</code> (tipo = compra, venta o dividendo; en dividendos, precio = importe bruto y comisión = retención).</p>
         </div>
         <div class="card">
           <div class="card-head"><h3>Ajustes</h3></div>
-          <label class="field">Moneda
+          <label class="field">Moneda principal (en la que se suman los totales)
             <select id="currencySel">
               <option value="EUR">Euro (€)</option>
               <option value="USD">Dólar ($)</option>
@@ -189,6 +189,9 @@
               <option value="CHF">Franco suizo (CHF)</option>
             </select>
           </label>
+          <h4 class="sub-h">Tipos de cambio</h4>
+          <div id="ratesBox"></div>
+          <p class="muted small">Se usa un único tipo por moneda para convertir los importes. Para la renta, Hacienda pide el tipo de cambio de la fecha de cada operación.</p>
           <div class="row-gap">
             <button class="btn" data-action="demo">Cargar datos de ejemplo</button>
             <button class="btn danger" id="wipeBtn">Borrar todos los datos</button>
@@ -213,7 +216,11 @@
       <div class="form-grid">
         <label>Fecha<input type="date" name="date" required /></label>
         <label>Valor (ticker)<input name="ticker" list="tickerList" placeholder="p. ej. SAN, AAPL, ITX" required autocomplete="off" /></label>
-        <label class="span-2">Nombre (opcional)<input name="name" placeholder="p. ej. Banco Santander" /></label>
+        <label>Nombre (opcional)<input name="name" placeholder="p. ej. Banco Santander" /></label>
+        <label>Moneda<select name="currency">
+          <option>EUR</option><option>USD</option><option>GBP</option><option>CHF</option><option>CAD</option>
+          <option>JPY</option><option>SEK</option><option>DKK</option><option>NOK</option><option>HKD</option><option>AUD</option>
+        </select></label>
         <label data-for="trade">Nº de acciones<input type="number" name="quantity" step="any" min="0" /></label>
         <label><span data-label="price">Precio por acción</span><input type="number" name="price" step="any" min="0" required /></label>
         <label><span data-label="commission">Comisión</span><input type="number" name="commission" step="any" min="0" value="0" /></label>

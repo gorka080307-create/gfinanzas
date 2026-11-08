@@ -5,6 +5,11 @@
  * Criterio de coste: FIFO (las primeras acciones compradas son las primeras
  * vendidas), que es el que aplica la Agencia Tributaria en España.
  * Las comisiones de compra se suman al coste; las de venta se restan del ingreso.
+ *
+ * Multidivisa: cada operación tiene su moneda (op.currency). Los importes por
+ * valor se guardan en su moneda original y, además, convertidos a la moneda
+ * principal (campos terminados en "B") con el tipo de cambio de los ajustes:
+ * rates = { USD: 1.11 } significa 1 moneda principal = 1,11 USD.
  */
 (function (root) {
   'use strict';
@@ -45,14 +50,27 @@
     return d.toISOString().slice(0, 10);
   }
 
+  function makeFx(opts) {
+    const base = (opts && opts.base) || 'EUR';
+    const rates = (opts && opts.rates) || {};
+    const rate = (ccy) => {
+      if (!ccy || ccy === base) return 1;
+      const r = num(rates[ccy]);
+      return r > 0 ? r : 1;
+    };
+    return { base, rate, toBase: (v, ccy) => v / rate(ccy) };
+  }
+
   /**
    * Recorre todas las operaciones y devuelve posiciones abiertas, ventas
    * realizadas, dividendos, evolución temporal y avisos.
    */
-  function computePortfolio(ops) {
+  function computePortfolio(ops, opts) {
+    const fx = makeFx(opts);
     const sorted = sortOps(ops || []);
-    const lots = {}; // ticker -> [{qty, unit, date}]
+    const lots = {}; // "TICKER|MONEDA" -> [{qty, unit, date}]
     const names = {};
+    const currencyOf = {}; // ticker -> última moneda usada
     const realized = [];
     const dividends = [];
     const warnings = [];
@@ -68,6 +86,9 @@
       const t = normTicker(op.ticker);
       if (!t) continue;
       if (op.name) names[t] = op.name;
+      const ccy = op.currency || fx.base;
+      currencyOf[t] = ccy;
+      const key = t + '|' + ccy;
       const q = num(op.quantity);
       const p = num(op.price);
       const c = num(op.commission);
@@ -75,14 +96,14 @@
       if (op.type === 'compra') {
         if (q <= 0) continue;
         const cost = q * p + c;
-        commissions += c;
-        (lots[t] = lots[t] || []).push({ qty: q, unit: cost / q, date: op.date, opId: op.id });
-        invested += cost;
-        perOp[op.id] = { total: cost, unitCost: cost / q };
+        commissions += fx.toBase(c, ccy);
+        (lots[key] = lots[key] || []).push({ qty: q, unit: cost / q, date: op.date, opId: op.id });
+        invested += fx.toBase(cost, ccy);
+        perOp[op.id] = { total: cost, unitCost: cost / q, ccy };
       } else if (op.type === 'venta') {
         if (q <= 0) continue;
-        commissions += c;
-        const queue = lots[t] || [];
+        commissions += fx.toBase(c, ccy);
+        const queue = lots[key] || [];
         let remaining = q;
         let costBasis = 0;
         const used = [];
@@ -111,6 +132,7 @@
           opId: op.id,
           date: op.date,
           ticker: t,
+          ccy,
           qty: soldQty,
           price: p,
           commission: c,
@@ -118,6 +140,9 @@
           proceeds,
           cost: costBasis,
           gain,
+          costB: fx.toBase(costBasis, ccy),
+          proceedsB: fx.toBase(proceeds, ccy),
+          gainB: fx.toBase(gain, ccy),
           pct: costBasis > 0 ? gain / costBasis : 0,
           days: daysBetween(firstBuy, op.date),
           lots: used,
@@ -125,16 +150,19 @@
         };
         realized.push(rec);
         perOp[op.id] = rec;
-        invested -= costBasis;
-        realizedCum += gain;
+        invested -= fx.toBase(costBasis, ccy);
+        realizedCum += fx.toBase(gain, ccy);
       } else if (op.type === 'dividendo') {
         const grossDiv = p; // en dividendos, "price" guarda el importe bruto
         const ret = c; // y "commission" la retención
         const net = grossDiv - ret;
-        const rec = { opId: op.id, date: op.date, ticker: t, gross: grossDiv, withholding: ret, net };
+        const rec = {
+          opId: op.id, date: op.date, ticker: t, ccy, gross: grossDiv, withholding: ret, net,
+          grossB: fx.toBase(grossDiv, ccy), withholdingB: fx.toBase(ret, ccy), netB: fx.toBase(net, ccy),
+        };
         dividends.push(rec);
         perOp[op.id] = rec;
-        dividendsCum += net;
+        dividendsCum += rec.netB;
       } else {
         continue;
       }
@@ -151,12 +179,12 @@
     // valores homogéneos dentro de los 2 meses anteriores o posteriores.
     const buys = sorted.filter((o) => o.type === 'compra');
     for (const r of realized) {
-      if (r.gain >= 0) continue;
+      if (r.gainB >= 0) continue;
       const from = addMonths(r.date, -2);
       const to = addMonths(r.date, 2);
       const consumed = new Set(r.lots.map((l) => l.opId));
       const hit = buys.find(
-        (b) => normTicker(b.ticker) === r.ticker && !consumed.has(b.id) && b.date >= from && b.date <= to
+        (b) => normTicker(b.ticker) === r.ticker && (b.currency || fx.base) === r.ccy && !consumed.has(b.id) && b.date >= from && b.date <= to
       );
       if (hit) {
         r.washSale = true;
@@ -170,22 +198,25 @@
 
     // Posiciones abiertas
     const positions = [];
-    for (const t of Object.keys(lots)) {
-      const open = lots[t].filter((l) => l.qty > EPS);
+    for (const key of Object.keys(lots)) {
+      const [t, ccy] = key.split('|');
+      const open = lots[key].filter((l) => l.qty > EPS);
       const qty = open.reduce((s, l) => s + l.qty, 0);
       if (qty <= EPS) continue;
       const cost = open.reduce((s, l) => s + l.qty * l.unit, 0);
       positions.push({
         ticker: t,
+        ccy,
         name: names[t] || '',
         qty,
         cost,
+        costB: fx.toBase(cost, ccy),
         avg: cost / qty,
         firstDate: open[0].date,
         lots: open.map((l) => ({ ...l })),
       });
     }
-    positions.sort((a, b) => b.cost - a.cost);
+    positions.sort((a, b) => b.costB - a.costB);
 
     return {
       positions,
@@ -195,8 +226,10 @@
       warnings,
       perOp,
       names,
+      currencyOf,
+      base: fx.base,
       totals: {
-        invested: positions.reduce((s, p) => s + p.cost, 0),
+        invested: positions.reduce((s, p) => s + p.costB, 0),
         realized: realizedCum,
         dividends: dividendsCum,
         commissions,
@@ -205,30 +238,33 @@
   }
 
   /** Simula una venta (sin guardarla) y devuelve el resultado FIFO. */
-  function simulateSale(ops, { ticker, quantity, price, commission, date, excludeId }) {
+  function simulateSale(ops, { ticker, quantity, price, commission, date, excludeId, currency }, opts) {
     const base = (ops || []).filter((o) => o.id !== excludeId);
     const t = normTicker(ticker);
     // Acciones disponibles en la fecha de la venta (o en total si no hay fecha)
     const before = date ? base.filter((o) => o.date <= date) : base;
-    const pf = computePortfolio(before);
-    const pos = pf.positions.find((p) => p.ticker === t);
+    const pf = computePortfolio(before, opts);
+    const ccy = currency || pf.currencyOf[t] || pf.base;
+    const pos = pf.positions.find((p) => p.ticker === t && p.ccy === ccy);
     const available = pos ? pos.qty : 0;
     const fake = {
       id: '__sim__',
       type: 'venta',
       ticker: t,
+      currency: ccy,
       quantity,
       price,
       commission,
       date: date || '9999-12-31',
       seq: Number.MAX_SAFE_INTEGER,
     };
-    const res = computePortfolio([...before, fake]);
+    const res = computePortfolio([...before, fake], opts);
     return { available, result: res.perOp['__sim__'] || null, position: pos || null };
   }
 
   /** Combina posiciones con precios actuales. */
-  function valuePositions(positions, prices) {
+  function valuePositions(positions, prices, opts) {
+    const fx = makeFx(opts);
     let value = 0;
     let costPriced = 0;
     const rows = positions.map((p) => {
@@ -236,22 +272,25 @@
       const hasPrice = cur > 0;
       const mv = hasPrice ? cur * p.qty : null;
       const pnl = hasPrice ? mv - p.cost : null;
+      const valueB = hasPrice ? fx.toBase(mv, p.ccy) : null;
       if (hasPrice) {
-        value += mv;
-        costPriced += p.cost;
+        value += valueB;
+        costPriced += p.costB;
       }
       return {
         ...p,
         price: hasPrice ? cur : null,
         priceDate: prices && prices[p.ticker] ? prices[p.ticker].date : null,
         value: mv,
+        valueB,
         pnl,
+        pnlB: hasPrice ? valueB - p.costB : null,
         pnlPct: hasPrice && p.cost > 0 ? pnl / p.cost : null,
       };
     });
     // Para pesos: valor de mercado si lo hay, coste si no
-    const totalForWeight = rows.reduce((s, r) => s + (r.value ?? r.cost), 0);
-    rows.forEach((r) => (r.weight = totalForWeight > 0 ? (r.value ?? r.cost) / totalForWeight : 0));
+    const totalForWeight = rows.reduce((s, r) => s + (r.valueB ?? r.costB), 0);
+    rows.forEach((r) => (r.weight = totalForWeight > 0 ? (r.valueB ?? r.costB) / totalForWeight : 0));
     const unrealized = value - costPriced;
     return {
       rows,
@@ -283,17 +322,17 @@
     for (const r of realized) {
       const y = get(r.date.slice(0, 4));
       y.sales++;
-      y.proceeds += r.proceeds;
-      y.cost += r.cost;
-      if (r.gain >= 0) y.gains += r.gain;
-      else y.losses += r.gain;
-      y.net += r.gain;
+      y.proceeds += r.proceedsB;
+      y.cost += r.costB;
+      if (r.gainB >= 0) y.gains += r.gainB;
+      else y.losses += r.gainB;
+      y.net += r.gainB;
     }
     for (const d of dividends) {
       const y = get(d.date.slice(0, 4));
-      y.divGross += d.gross;
-      y.divWithholding += d.withholding;
-      y.divNet += d.net;
+      y.divGross += d.grossB;
+      y.divWithholding += d.withholdingB;
+      y.divNet += d.netB;
     }
     return Object.values(years).sort((a, b) => (a.year < b.year ? -1 : 1));
   }
@@ -321,7 +360,7 @@
     return tax;
   }
 
-  const api = { computePortfolio, simulateSale, valuePositions, yearSummary, estimateSavingsTax, normTicker, num, sortOps };
+  const api = { makeFx, computePortfolio, simulateSale, valuePositions, yearSummary, estimateSavingsTax, normTicker, num, sortOps };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.GCalc = api;
 })(typeof window !== 'undefined' ? window : globalThis);
