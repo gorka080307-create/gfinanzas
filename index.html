@@ -12,7 +12,7 @@
     body.locked { margin: 0; background: #0d0d0d; color: #f0efec; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
     body.locked .lock { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
   </style>
-  <link rel="stylesheet" href="css/styles.css?v=202611081312" />
+  <link rel="stylesheet" href="css/styles.css?v=202611121358" />
   <script>
     // Aplicar tema guardado antes de pintar para evitar parpadeo
     try { const t = localStorage.getItem('gfinanzas.theme'); if (t) document.documentElement.dataset.theme = t; } catch (e) {}
@@ -76,6 +76,7 @@
       <button role="tab" data-tab="datos">Ajustes</button>
     </nav>
     <div class="live" aria-live="off">
+      <div class="markets" id="markets" aria-label="Estado de los mercados"></div>
       <div class="live-clock"><span id="clockTime">--:--:--</span><span id="clockDate" class="muted small"></span></div>
       <div class="live-total" id="worthPill" title="Dinero en cuentas + inversiones"><span class="muted small">Patrimonio</span><strong id="worthValue">—</strong></div>
       <div class="live-total" id="totalPill" title=""><span class="muted small">Inversiones</span><strong id="totalValue">—</strong></div>
@@ -522,9 +523,10 @@
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.6/dist/chart.umd.min.js"></script>
-  <script src="js/calc.js?v=202611081312"></script>
-  <script src="js/wealth.js?v=202611081312"></script>
-  <script src="js/vault.js?v=202611081312"></script>
-  <script src="js/app.js?v=202611081312"></script>
+  <script src="js/markets.js?v=202611121358"></script>
+  <script src="js/calc.js?v=202611121358"></script>
+  <script src="js/wealth.js?v=202611121358"></script>
+  <script src="js/vault.js?v=202611121358"></script>
+  <script src="js/app.js?v=202611121358"></script>
 </body>
 </html>

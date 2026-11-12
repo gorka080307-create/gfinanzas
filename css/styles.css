@@ -437,3 +437,30 @@ body:not(.locked) .lock { display: none; }
   .tabs { order: 3; width: 100%; }
   .live { margin-left: auto; }
 }
+
+/* ---------- Estado de los mercados ---------- */
+.markets { display: grid; gap: 3px; font-size: 12.5px; line-height: 1.25; }
+.mkt { display: grid; grid-template-columns: 10px auto auto auto; align-items: center; gap: 6px; white-space: nowrap; cursor: default; }
+.mkt .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-muted); }
+.mkt[data-state="open"] .dot { background: var(--good); box-shadow: 0 0 0 0 color-mix(in srgb, var(--good) 60%, transparent); animation: mktpulse 2s infinite; }
+.mkt[data-state="pre"] .dot, .mkt[data-state="post"] .dot, .mkt[data-state="auction"] .dot { background: var(--warning); }
+.mkt .mn { color: var(--text-secondary); }
+.mkt .st { font-weight: 650; }
+.mkt[data-state="open"] .st { color: var(--good-text); }
+.mkt[data-state="closed"] .st { color: var(--text-muted); }
+.mkt .nx { color: var(--text-muted); font-variant-numeric: tabular-nums; }
+@keyframes mktpulse { 70% { box-shadow: 0 0 0 6px transparent; } 100% { box-shadow: 0 0 0 0 transparent; } }
+@media (prefers-reduced-motion: reduce) { .mkt[data-state="open"] .dot { animation: none; } }
+@media (max-width: 1580px) {
+  .topbar { flex-wrap: wrap; row-gap: 6px; }
+  .tabs { order: 3; width: 100%; }
+  .live { margin-left: auto; }
+}
+@media (max-width: 900px) {
+  .markets { order: -1; width: 100%; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .live { flex-wrap: wrap; }
+}
+@media (max-width: 560px) {
+  .mkt { grid-template-columns: 10px auto auto; justify-content: start; }
+  .mkt .nx, .mkt .mname { display: none; }
+}

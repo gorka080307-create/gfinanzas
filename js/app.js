@@ -235,7 +235,41 @@
   }
 
   // ---------- Barra superior: reloj y resultado total ----------
+  // ---------- Estado de los mercados ----------
+  let mktCache = null;
+  function untilText(target, now) {
+    const mins = Math.max(0, Math.round((target - now) / 60000));
+    if (mins < 1) return 'menos de 1 min';
+    if (mins < 60) return `${mins} min`;
+    if (mins < 24 * 60) {
+      const h = Math.floor(mins / 60);
+      const m = mins % 60;
+      return m ? `${h} h ${m} min` : `${h} h`;
+    }
+    return target.toLocaleDateString('es-ES', { weekday: 'short' }) + ' ' + target.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+  }
+  function renderMarkets() {
+    if (!window.GMarkets) return;
+    const now = new Date();
+    if (!mktCache || now - mktCache.at > 30000 || mktCache.list.some((m) => m.next && now >= m.next)) {
+      mktCache = { at: now, list: ['us', 'eu'].map((k) => GMarkets.status(k, now)) };
+    }
+    $('#markets').innerHTML = mktCache.list
+      .map((m) => {
+        const far = m.next && m.next - now >= 24 * 3600000;
+        const when = m.next ? (far ? `${m.nextLabel} ${untilText(m.next, now)}` : `${m.nextLabel} en ${untilText(m.next, now)}`) : '';
+        const at = m.next ? m.next.toLocaleString('es-ES', { weekday: 'long', hour: '2-digit', minute: '2-digit' }) : '';
+        const title = `${m.name}: ${m.label}${m.early ? ' (sesión reducida hoy)' : ''}\n${m.note}\n${m.next ? `${m.nextLabel[0].toUpperCase() + m.nextLabel.slice(1)} el ${at} (tu hora)` : ''}`;
+        return `<div class="mkt" data-state="${m.state}" title="${esc(title)}">
+          <span class="dot"></span><span class="mn">${m.flag}<span class="mname"> ${m.name}</span></span>
+          <span class="st">${m.label}${m.early && m.state !== 'closed' ? ' ½' : ''}</span><span class="nx">${when}</span>
+        </div>`;
+      })
+      .join('');
+  }
+
   function tickClock() {
+    renderMarkets();
     const now = new Date();
     $('#clockTime').textContent = now.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
     $('#clockDate').textContent = now.toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
