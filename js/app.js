@@ -191,7 +191,7 @@
     const rows = val.rows
       .map(
         (r) => `<tr>
-        <td><span class="ticker">${esc(r.ticker)}</span><span class="sub">${esc(r.name) || 'desde ' + fmtDate(r.firstDate)}</span></td>
+        <td><button class="link-ticker" data-chart="${esc(r.ticker)}" title="Ver gráfico"><span class="ticker">${esc(r.ticker)}</span> 📈</button><span class="sub">${esc(r.name) || 'desde ' + fmtDate(r.firstDate)}</span></td>
         <td class="num">${numFmt(r.qty)}</td>
         <td class="num">${money(r.avg, { precise: true, ccy: r.ccy })}</td>
         <td class="num">${money(r.cost, { ccy: r.ccy })}${r.ccy !== base() ? `<span class="sub">${money(r.costB)}</span>` : ''}</td>
@@ -1038,7 +1038,7 @@
   });
 
   // ---------- Eventos generales ----------
-  const INV_TABS = ['resumen', 'cartera', 'operaciones', 'fiscal'];
+  const INV_TABS = ['resumen', 'cartera', 'graficos', 'operaciones', 'fiscal'];
   let lastInvTab = 'resumen';
   function showTab(name) {
     if (name === 'inversiones') name = lastInvTab;
@@ -1053,6 +1053,7 @@
     if (location.hash !== '#' + name) history.replaceState(null, '', '#' + name);
     if (name === 'resumen' && state.ops.length) renderCharts();
     if (name === 'patrimonio') renderWealthCharts();
+    if (name === 'graficos') renderChartsTab();
     window.scrollTo({ top: 0 });
   }
   $$('.tabs button, #invSubnav button').forEach((b) => b.addEventListener('click', () => showTab(b.dataset.tab)));
@@ -1139,6 +1140,7 @@
     try { localStorage.setItem('gfinanzas.theme', root.dataset.theme); } catch (e) {}
     if (state.ops.length) renderCharts();
     if ($('#tab-patrimonio').classList.contains('active')) renderWealthCharts();
+    if ($('#tab-graficos').classList.contains('active')) renderChartsTab(true);
   });
   matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => state.ops.length && renderCharts());
 
@@ -2051,6 +2053,175 @@
     state.settings.categories[kind] = state.settings.categories[kind].filter((c) => c.id !== id);
     save();
     render();
+  });
+
+  // =====================================================================
+  //  GRÁFICOS DE COTIZACIÓN (TradingView, en un iframe aislado)
+  // =====================================================================
+  // Símbolos de TradingView conocidos para valores que no cotizan en EE. UU.
+  // o cuyo ticker no coincide. El resto se puede corregir desde la propia vista.
+  const TV_KNOWN = {
+    INDRA: 'BME:IDR', SAP: 'XETR:SAP', 'YOC AG': 'XETR:YOC', VISA: 'NYSE:V', TSMC: 'NYSE:TSM',
+    SAN: 'BME:SAN', ITX: 'BME:ITX', IBE: 'BME:IBE', BBVA: 'BME:BBVA', TEF: 'BME:TEF', REP: 'BME:REP',
+  };
+  let chartTicker = null; // ticker de tus operaciones que se está viendo
+  let chartFree = null; // símbolo escrito a mano que no está en tus operaciones
+  let tvLoaded = '';
+
+  function tvSymbol(t) {
+    const own = state.settings.tvSymbols && state.settings.tvSymbols[t];
+    return own || TV_KNOWN[t] || t.replace(/\s+/g, '');
+  }
+  function isDark() {
+    const r = document.documentElement.dataset.theme;
+    return r ? r === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
+  }
+  function tvUrl(symbol) {
+    const cfg = {
+      symbol,
+      interval: 'D',
+      timezone: 'Europe/Madrid',
+      theme: isDark() ? 'dark' : 'light',
+      style: '1',
+      locale: 'es',
+      withdateranges: true,
+      allow_symbol_change: true,
+      hide_side_toolbar: false,
+      details: false,
+      calendar: false,
+      save_image: true,
+      autosize: true,
+      support_host: 'https://www.tradingview.com',
+    };
+    return 'https://www.tradingview-widget.com/embed-widget/advanced-chart/?locale=es#' + encodeURIComponent(JSON.stringify(cfg));
+  }
+
+  function chartTickers() {
+    const open = val.rows.map((r) => r.ticker);
+    const past = [...new Set(state.ops.map((o) => C.normTicker(o.ticker)))].filter((t) => !open.includes(t) && t !== 'RECOMPENSA').sort();
+    return { open, past };
+  }
+
+  function openChart(t) {
+    chartTicker = t;
+    chartFree = null;
+    state.settings.lastChart = t;
+    save();
+    showTab('graficos');
+  }
+
+  function renderChartsTab(force) {
+    const { open, past } = chartTickers();
+    if (!chartTicker && !chartFree) {
+      const last = state.settings.lastChart;
+      chartTicker = last && (open.includes(last) || past.includes(last)) ? last : open[0] || past[0] || null;
+    }
+    const chip = (t, kind) =>
+      `<label title="${kind === 'open' ? 'En cartera' : 'Ya vendido'}"><input type="radio" name="chartSym" value="${esc(t)}" ${
+        t === chartTicker && !chartFree ? 'checked' : ''
+      } /><span>${kind === 'open' ? '●' : '○'} ${esc(t)}</span></label>`;
+    const pastSel = past.includes(chartTicker) && !chartFree;
+    $('#chartChips').innerHTML =
+      open.map((t) => chip(t, 'open')).join('') +
+      (pastSel ? chip(chartTicker, 'past') : '') +
+      (chartFree ? `<label><input type="radio" name="chartSym" value="" checked /><span>🔎 ${esc(chartFree)}</span></label>` : '') +
+      (past.length
+        ? `<select id="pastSel" aria-label="Valores que ya vendiste"><option value="">Ya vendidos (${past.length})…</option>${past
+            .map((t) => `<option value="${esc(t)}">${esc(t)}${pf.names[t] ? ' · ' + esc(pf.names[t]) : ''}</option>`)
+            .join('')}</select>`
+        : '');
+
+    const symbol = chartFree || (chartTicker ? tvSymbol(chartTicker) : null);
+    const frame = $('#tvFrame');
+    if (!symbol) {
+      frame.innerHTML = '<div class="chart-empty">Cuando tengas operaciones, aquí verás el gráfico de cada valor. También puedes buscar cualquier otro arriba.</div>';
+      $('#tvSide').innerHTML = '';
+      tvLoaded = '';
+      return;
+    }
+    const url = tvUrl(symbol);
+    if (force || tvLoaded !== url) {
+      frame.innerHTML = `<iframe src="${url}" title="Gráfico de ${esc(symbol)}" allow="fullscreen" referrerpolicy="origin"></iframe>`;
+      tvLoaded = url;
+    }
+    $('#tvOpen').href = 'https://es.tradingview.com/chart/?symbol=' + encodeURIComponent(symbol);
+    renderChartSide();
+  }
+
+  function renderChartSide() {
+    const side = $('#tvSide');
+    if (chartFree) {
+      side.innerHTML = `<h3>${esc(chartFree)}</h3><p class="muted small">Este valor no está en tus operaciones. Si lo compras, apúntalo con «+ Añadir → Operación de bolsa».</p>`;
+      return;
+    }
+    const t = chartTicker;
+    const r = val.rows.find((x) => x.ticker === t);
+    const ops = C.sortOps(state.ops.filter((o) => C.normTicker(o.ticker) === t)).reverse();
+    const realized = pf.realized.filter((x) => x.ticker === t);
+    const realizedB = realized.reduce((a, x) => a + x.gainB, 0);
+    const name = pf.names[t] || '';
+    let html = `<h3>${esc(t)}${name ? ` <span class="muted small">${esc(name)}</span>` : ''}</h3>`;
+    if (r) {
+      html += `<div class="side-grid">
+        <div><span>Acciones</span><strong>${numFmt(r.qty)}</strong></div>
+        <div><span>Precio medio</span><strong>${money(r.avg, { precise: true, ccy: r.ccy })}</strong></div>
+        <div><span>Precio actual</span><strong>${r.price != null ? money(r.price, { precise: true, ccy: r.ccy }) : '—'}</strong></div>
+        <div><span>Invertido</span><strong>${money(r.cost, { ccy: r.ccy })}</strong></div>
+        <div><span>Valor actual</span><strong>${money(r.value, { ccy: r.ccy })}</strong></div>
+        <div><span>G/P latente</span><strong class="${cls(r.pnl)}">${money(r.pnl, { sign: true, ccy: r.ccy })}<br /><small>${pct(r.pnlPct)}</small></strong></div>
+      </div>
+      <p class="muted small">Tu precio medio es <strong>${money(r.avg, { precise: true, ccy: r.ccy })}</strong>: si la cotización está por encima, vas ganando.</p>`;
+    } else html += '<p class="muted small">Ya no tienes acciones de este valor.</p>';
+    if (realized.length) html += `<p class="side-real">Resultado de tus ventas: <strong class="${cls(realizedB)}">${money(realizedB, { sign: true })}</strong></p>`;
+    const opsHtml = ops
+      .slice(0, 40)
+      .map((o) => {
+        const oc = o.currency || base();
+        const res = pf.perOp[o.id] || {};
+        const what = o.type === 'dividendo' ? money(C.num(o.price), { ccy: oc }) : `${numFmt(C.num(o.quantity))} × ${money(C.num(o.price), { precise: true, ccy: oc })}`;
+        const gain = o.type === 'venta' ? `<small class="${cls(res.gain)}">${money(res.gain, { sign: true, ccy: oc })}</small>` : '';
+        return `<div class="side-op"><span class="badge ${o.type}">${o.type === 'compra' ? 'Compra' : o.type === 'venta' ? 'Venta' : 'Div.'}</span><span>${fmtDate(o.date)}</span><span class="num">${what}${gain}</span></div>`;
+      })
+      .join('');
+    html += `<h4>Tus operaciones</h4><div class="side-ops">${opsHtml || '<p class="muted small">Sin operaciones.</p>'}</div>
+      <form class="tv-sym" id="tvSymForm">
+        <label class="muted small">Símbolo en TradingView<input name="sym" value="${esc(tvSymbol(t))}" placeholder="p. ej. BME:SAN" /></label>
+        <button class="btn sm" type="submit">Usar</button>
+      </form>
+      <p class="muted small">Si el gráfico no es el valor correcto (o es de otra bolsa), pon el mercado delante: <code>BME:</code> Madrid, <code>XETR:</code> Alemania, <code>EURONEXT:</code> París/Ámsterdam, <code>NASDAQ:</code>, <code>NYSE:</code>.</p>`;
+    side.innerHTML = html;
+  }
+
+  document.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-chart]');
+    if (b) {
+      e.preventDefault();
+      openChart(b.dataset.chart);
+    }
+  });
+  $('#chartChips').addEventListener('change', (e) => {
+    if ((e.target.name === 'chartSym' || e.target.id === 'pastSel') && e.target.value) openChart(e.target.value);
+  });
+  $('#chartSearch').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const q = e.target.q.value.trim().toUpperCase();
+    if (!q) return;
+    const own = chartTickers();
+    if (own.open.includes(q) || own.past.includes(q)) return openChart(q);
+    chartFree = q;
+    e.target.reset();
+    renderChartsTab();
+  });
+  $('#tvSide').addEventListener('submit', (e) => {
+    if (e.target.id !== 'tvSymForm') return;
+    e.preventDefault();
+    const v = e.target.sym.value.trim().toUpperCase();
+    state.settings.tvSymbols = state.settings.tvSymbols || {};
+    if (v && v !== chartTicker) state.settings.tvSymbols[chartTicker] = v;
+    else delete state.settings.tvSymbols[chartTicker];
+    save();
+    renderChartsTab(true);
+    toast('Símbolo guardado');
   });
 
   // ---------- Ajustes: impuestos, seguridad ----------

@@ -12,7 +12,7 @@
     body.locked { margin: 0; background: #0d0d0d; color: #f0efec; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
     body.locked .lock { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
   </style>
-  <link rel="stylesheet" href="css/styles.css?v=202611121358" />
+  <link rel="stylesheet" href="css/styles.css?v=202611191739" />
   <script>
     // Aplicar tema guardado antes de pintar para evitar parpadeo
     try { const t = localStorage.getItem('gfinanzas.theme'); if (t) document.documentElement.dataset.theme = t; } catch (e) {}
@@ -102,6 +102,7 @@
     <nav class="subtabs hidden" id="invSubnav" role="tablist" aria-label="Inversiones">
       <button role="tab" data-tab="resumen">Resumen</button>
       <button role="tab" data-tab="cartera">Cartera</button>
+      <button role="tab" data-tab="graficos">Gráficos</button>
       <button role="tab" data-tab="operaciones">Operaciones</button>
       <button role="tab" data-tab="fiscal">Ventas</button>
     </nav>
@@ -304,6 +305,27 @@
     </section>
 
     <!-- FISCALIDAD -->
+    <!-- GRÁFICOS -->
+    <section class="tab-panel" id="tab-graficos">
+      <div class="chart-pick">
+        <div class="chips sym-chips" id="chartChips" role="radiogroup" aria-label="Valor"></div>
+        <form id="chartSearch" class="chart-search">
+          <input name="q" placeholder="Otro valor: AAPL, BME:SAN, XETR:SAP…" aria-label="Buscar otro valor" autocomplete="off" />
+          <button class="btn" type="submit">Ver</button>
+        </form>
+      </div>
+      <div class="chart-layout">
+        <div class="card tv-card">
+          <div class="tv-frame" id="tvFrame"><div class="chart-empty">Elige un valor para ver su gráfico</div></div>
+          <div class="tv-foot muted small">
+            <span>Gráfico de <a href="https://es.tradingview.com/" target="_blank" rel="noopener">TradingView</a>. Algunos mercados se muestran con unos minutos de retraso (lo indica el propio gráfico).</span>
+            <a href="#" id="tvOpen" target="_blank" rel="noopener">Abrir en pantalla completa ↗</a>
+          </div>
+        </div>
+        <aside class="card tv-side" id="tvSide"></aside>
+      </div>
+    </section>
+
     <section class="tab-panel" id="tab-fiscal">
       <div class="filters">
         <label class="inline">Año fiscal <select id="fiscalYear"></select></label>
@@ -523,10 +545,10 @@
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.6/dist/chart.umd.min.js"></script>
-  <script src="js/markets.js?v=202611121358"></script>
-  <script src="js/calc.js?v=202611121358"></script>
-  <script src="js/wealth.js?v=202611121358"></script>
-  <script src="js/vault.js?v=202611121358"></script>
-  <script src="js/app.js?v=202611121358"></script>
+  <script src="js/markets.js?v=202611191739"></script>
+  <script src="js/calc.js?v=202611191739"></script>
+  <script src="js/wealth.js?v=202611191739"></script>
+  <script src="js/vault.js?v=202611191739"></script>
+  <script src="js/app.js?v=202611191739"></script>
 </body>
 </html>
